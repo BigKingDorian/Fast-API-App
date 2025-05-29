@@ -15,7 +15,7 @@ dg_client = Deepgram(DEEPGRAM_API_KEY)
 app = FastAPI()
 
 # ✅ This route sends TwiML to Twilio to start MediaStream
-@app.post("/twiml")
+@app.post("/")  # Changed from /twiml to /
 async def twiml_response():
     twiml = """
     <Response>
@@ -84,3 +84,4 @@ async def media_stream(websocket: WebSocket):
 
     finally:
         await audio_queue.put(None)
+
