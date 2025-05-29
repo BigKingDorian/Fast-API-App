@@ -2,26 +2,38 @@ import base64
 import os
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from deepgram import Deepgram
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Environment variables
+# Load Deepgram API key
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-
-# FastAPI app
-app = FastAPI()
-
-# Deepgram client
 dg_client = Deepgram(DEEPGRAM_API_KEY)
 
+app = FastAPI()
+
+# ✅ This route sends TwiML to Twilio to start MediaStream
+@app.post("/twiml")
+async def twiml_response():
+    twiml = """
+    <Response>
+        <Start>
+            <Stream url="wss://silent-sound-1030.fly.dev/media" />
+        </Start>
+        <Say>Start talking. I'm listening.</Say>
+        <Pause length="60"/>
+    </Response>
+    """
+    return Response(content=twiml.strip(), media_type="application/xml")
+
+# ✅ This route receives audio stream from Twilio MediaStream
 @app.websocket("/media")
 async def media_stream(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connected")
 
-    # Audio chunk buffer
     audio_queue = asyncio.Queue()
 
     async def stream_to_deepgram():
