@@ -1,0 +1,12 @@
+[tool.poetry]
+name = "twilio-deepgram-test"
+version = "0.1.0"
+description = "Live Twilio call streamed to Deepgram for transcription"
+authors = ["Your Name <your@email.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+websockets = "*"
+deepgram-sdk = "*"
+fastapi = "*"
+uvicorn = "*"
