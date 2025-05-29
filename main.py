@@ -14,21 +14,22 @@ dg_client = Deepgram(DEEPGRAM_API_KEY)
 
 app = FastAPI()
 
-# ✅ This route sends TwiML to Twilio to start MediaStream
-@app.post("/")  # Changed from /twiml to /
+# ✅ TwiML route - now loops to keep Twilio call alive
+@app.post("/twiml")
 async def twiml_response():
     twiml = """
     <Response>
         <Start>
             <Stream url="wss://silent-sound-1030.fly.dev/media" />
         </Start>
-        <Say>Start talking. I'm listening.</Say>
+        <Say>Hello, my name is Lotus. Can I answer any questions about our business?</Say>
         <Pause length="60"/>
+        <Redirect>/twiml</Redirect>
     </Response>
     """
     return Response(content=twiml.strip(), media_type="application/xml")
 
-# ✅ This route receives audio stream from Twilio MediaStream
+# ✅ WebSocket route - receives audio from Twilio & sends to Deepgram
 @app.websocket("/media")
 async def media_stream(websocket: WebSocket):
     await websocket.accept()
@@ -84,4 +85,5 @@ async def media_stream(websocket: WebSocket):
 
     finally:
         await audio_queue.put(None)
+
 
