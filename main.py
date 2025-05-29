@@ -1,36 +1,35 @@
 import base64
 import os
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from deepgram import Deepgram
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Load Deepgram API key
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 dg_client = Deepgram(DEEPGRAM_API_KEY)
 
 app = FastAPI()
 
-# ✅ TwiML route - now loops to keep Twilio call alive
-@app.post("/twiml")
-async def twiml_response():
+# ✅ TwiML at root "/"
+@app.post("/")
+async def root_twiml(request: Request):
     twiml = """
     <Response>
         <Start>
-            <Stream url="wss://silent-sound-1030.fly.dev/" />
+            <Stream url="wss://silent-sound-1030.fly.dev/media" />
         </Start>
-        <Say>Hello, my name is Lotus. Can I answer any questions about our business?</Say>
+        <Say>Hello, this is Lotus. Ask me anything about our services.</Say>
         <Pause length="60"/>
-        <Redirect>/twiml</Redirect>
+        <Redirect>/</Redirect>
     </Response>
     """
     return Response(content=twiml.strip(), media_type="application/xml")
 
-# ✅ WebSocket route - receives audio from Twilio & sends to Deepgram
-@app.websocket("/")
+# ✅ WebSocket for receiving MediaStream
+@app.websocket("/media")
 async def media_stream(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connected")
@@ -85,5 +84,3 @@ async def media_stream(websocket: WebSocket):
 
     finally:
         await audio_queue.put(None)
-
-
