@@ -132,10 +132,3 @@ async def media_stream(ws: WebSocket) -> None:
             pass
         await ws.close()
         print("★ Connection closed")
-
-
-# ── Optional: run with `python main.py` locally ───────────────────────────────
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
