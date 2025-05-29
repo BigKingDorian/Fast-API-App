@@ -20,7 +20,7 @@ async def twiml_response():
     twiml = """
     <Response>
         <Start>
-            <Stream url="wss://silent-sound-1030.fly.dev/media" />
+            <Stream url="wss://silent-sound-1030.fly.dev/" />
         </Start>
         <Say>Hello, my name is Lotus. Can I answer any questions about our business?</Say>
         <Pause length="60"/>
@@ -30,7 +30,7 @@ async def twiml_response():
     return Response(content=twiml.strip(), media_type="application/xml")
 
 # ✅ WebSocket route - receives audio from Twilio & sends to Deepgram
-@app.websocket("/media")
+@app.websocket("/")
 async def media_stream(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connected")
