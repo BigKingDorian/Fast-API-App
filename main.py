@@ -5,7 +5,7 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
-from deepgram import Deepgram
+from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +16,7 @@ if not DEEPGRAM_API_KEY:
 app = FastAPI()
 
 @app.post("/")
-async def twilio_voice_webhook(_: Request) -> Response:
+async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
     start = Start()
     start.stream(url="wss://silent-sound-1030.fly.dev/media")
@@ -26,44 +26,33 @@ async def twilio_voice_webhook(_: Request) -> Response:
     return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
-async def media_stream(ws: WebSocket) -> None:
+async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-    dg = Deepgram(DEEPGRAM_API_KEY)
+    dg_client = DeepgramClient(DEEPGRAM_API_KEY)
+    dg_connection = None
+
     try:
-        dg_conn = await dg.transcription.live({
-            "encoding": "mulaw",
-            "sample_rate": 8000,
-            "language": "en-US",
-            "punctuate": True,
-            "interim_results": False,
-        })
+        dg_connection = dg_client.listen.live.v("1")
+        options = LiveOptions(
+            language="en-US",
+            encoding="mulaw",
+            sample_rate=8000,
+            punctuate=True,
+        )
+
+        async def on_transcript(data, *_):
+            transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
+            if transcript:
+                print(f"📝 {transcript}")
+
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        await dg_connection.start(options)
     except Exception as e:
         print(f"⛔ Deepgram connection error: {e}")
         await ws.close()
         return
-
-    def _on_transcript(data):
-        text = (
-            data.get("channel", {})
-            .get("alternatives", [{}])[0]
-            .get("transcript", "")
-            .strip()
-        )
-        if text:
-            print(f"📝 {text}")
-
-    dg_conn.register_handler("transcript_received", _on_transcript)
-
-    async def _dg_drain():
-        try:
-            async for _ in dg_conn.receiver():
-                pass
-        except Exception as e:
-            print(f"⛔ Deepgram recv error: {e}")
-
-    asyncio.create_task(_dg_drain())
 
     try:
         while True:
@@ -77,24 +66,21 @@ async def media_stream(ws: WebSocket) -> None:
             event = msg.get("event")
 
             if event == "start":
-                print("▶️  Stream started (StreamSid:", msg['start'].get('streamSid'), ")")
+                print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
 
             elif event == "media":
-                b64 = msg["media"]["payload"]
-                audio_bytes = base64.b64decode(b64)
-                await dg_conn.send(audio_bytes)
+                payload = base64.b64decode(msg["media"]["payload"])
+                await dg_connection.send(payload)
 
             elif event == "stop":
-                print("⏹  Stream stopped by Twilio")
+                print("⏹ Stream stopped by Twilio")
                 break
 
     except Exception as e:
         print(f"⛔ WS loop error: {e}")
 
     finally:
-        try:
-            await dg_conn.finish()
-        except Exception:
-            pass
+        if dg_connection:
+            await dg_connection.finish()
         await ws.close()
         print("★ Connection closed")
