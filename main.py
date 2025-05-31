@@ -34,13 +34,13 @@ async def media_stream(ws: WebSocket):
     dg_connection = None
 
     try:
-        dg_connection = dg_client.listen.live.v("1")
-        options = LiveOptions(
+        dg_connection = dg_client.listen.live({
+        options = LiveOptions
             language="en-US",
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
-        )
+        })
 
         async def on_transcript(data, *_):
             transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
