@@ -5,7 +5,7 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from deepgram.sdk import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from dotenv import load_dotenv
 
 load_dotenv()
