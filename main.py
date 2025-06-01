@@ -41,19 +41,20 @@ try:
         punctuate=True
     )
 
-        dg_connection = dg_client.listen.live(options)
+    dg_connection = dg_client.listen.live(options)
 
-        async def on_transcript(data, *_):
-            transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
-            if transcript:
-                print(f"📝 {transcript}")
+    async def on_transcript(data, *_):
+        transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
+        if transcript:
+            print(f"📝 {transcript}")
 
-        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        await dg_connection.start(options)
-    except Exception as e:
-        print(f"⛔ Deepgram connection error: {e}")
-        await ws.close()
-        return
+    dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+    await dg_connection.start()
+
+except Exception as e:
+    print(f"⛔ Deepgram connection error: {e}")
+    await ws.close()
+    return
 
     try:
         while True:
