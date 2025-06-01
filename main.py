@@ -50,7 +50,7 @@ async def media_stream(ws: WebSocket):
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         
-        await dg_connection.start()
+    await dg_connection.start()
 
     except Exception as e:
         print(f"⛔ Deepgram connection error: {e}")
