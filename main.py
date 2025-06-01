@@ -33,13 +33,13 @@ async def media_stream(ws: WebSocket):
     dg_client = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
-    try:
-       options = LiveOptions(
-    language="en-US",
-    encoding="mulaw",
-    sample_rate=8000,
-    punctuate=True
-)
+try:
+    options = LiveOptions(
+        language="en-US",
+        encoding="mulaw",
+        sample_rate=8000,
+        punctuate=True
+    )
 
 dg_connection = dg_client.listen.live(options)
 
