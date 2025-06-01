@@ -33,23 +33,24 @@ async def media_stream(ws: WebSocket):
     dg_client = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
-try:
-    options = LiveOptions(
-        language="en-US",
-        encoding="mulaw",
-        sample_rate=8000,
-        punctuate=True
-    )
+    try:
+        options = LiveOptions(
+            language="en-US",
+            encoding="mulaw",
+            sample_rate=8000,
+            punctuate=True
+        )
 
-    dg_connection = dg_client.listen.live(options)
+        dg_connection = dg_client.listen.live(options)
 
-    async def on_transcript(data, *_):
-        transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
-        if transcript:
-            print(f"📝 {transcript}")
+        async def on_transcript(data, *_):
+            transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
+            if transcript:
+                print(f"📝 {transcript}")
 
-    dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-    await dg_connection.start()
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        
+        await dg_connection.start()
 
 except Exception as e:
     print(f"⛔ Deepgram connection error: {e}")
