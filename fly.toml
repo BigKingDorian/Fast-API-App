@@ -11,6 +11,7 @@ protocol = "tcp"
   [[services.ports]]
   handlers = ["http"]
   port = 80
+  force_https = true  # 🔥 Add this
 
   [[services.ports]]
   handlers = ["tls", "http"]
