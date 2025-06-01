@@ -41,7 +41,7 @@ try:
         punctuate=True
     )
 
-dg_connection = dg_client.listen.live(options)
+        dg_connection = dg_client.listen.live(options)
 
         async def on_transcript(data, *_):
             transcript = data.get('channel', {}).get('alternatives', [{}])[0].get('transcript', '').strip()
