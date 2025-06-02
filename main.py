@@ -85,9 +85,4 @@ async def media_stream(ws: WebSocket):
             await dg_connection.finish()
         await ws.close()
         print("Connection closed")
-            try:
-                await dg_conn.finish()
-            except Exception:
-                pass
-        await ws.close()
-        log.info("Connection closed")
+        
