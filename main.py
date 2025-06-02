@@ -80,9 +80,8 @@ async def media_stream(ws: WebSocket):
 
     except Exception as e:
         print(f"⛔ Deepgram error: {e}")
-
     finally:
         if dg_connection:
             await dg_connection.finish()
         await ws.close()
-        print("★ Connection closed")
+        print("Connection closed")
