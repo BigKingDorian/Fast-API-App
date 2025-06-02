@@ -77,11 +77,3 @@ async def media(ws: WebSocket):
                 pass
         await ws.close()
         log.info("Connection closed")
-
-
-        print(f"⛔ Deepgram error: {e}")
-    finally:
-        if dg_connection:
-            await dg_connection.finish()
-        await ws.close()
-        print("Connection closed")
