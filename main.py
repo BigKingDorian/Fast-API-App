@@ -55,26 +55,30 @@ async def media_stream(ws: WebSocket):
                         print(f"📝 {transcript}")
 
         async def sender():
-            while True:
-                try:
-                    raw = await ws.receive_text()
-                except WebSocketDisconnect:
-                    print("✖️  Twilio WebSocket disconnected")
-                    break
+    while True:
+        try:
+            raw_bytes = await ws.receive_bytes()
+            raw = raw_bytes.decode("utf-8")
+            msg = json.loads(raw)
+        except WebSocketDisconnect:
+            print("✖️  Twilio WebSocket disconnected")
+            break
+        except Exception as e:
+            print(f"⚠️ Error reading message: {e}")
+            break
 
-                msg = json.loads(raw)
-                event = msg.get("event")
+        event = msg.get("event")
 
-                if event == "start":
-                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+        if event == "start":
+            print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
 
-                elif event == "media":
-                    payload = base64.b64decode(msg["media"]["payload"])
-                    await dg_connection.send(payload)
+        elif event == "media":
+            payload = base64.b64decode(msg["media"]["payload"])
+            await dg_connection.send(payload)
 
-                elif event == "stop":
-                    print("⏹ Stream stopped by Twilio")
-                    break
+        elif event == "stop":
+            print("⏹ Stream stopped by Twilio")
+            break
 
         await asyncio.gather(sender(), receiver())
 
