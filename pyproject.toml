@@ -5,10 +5,10 @@ description = "Live Twilio call streamed to Deepgram for transcription"
 authors = ["Your Name <your@email.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "*"
 websockets = "*"
 deepgram-sdk = "*"
 fastapi = "*"
 uvicorn = "*"
-twilio = "^8.0.0"
+twilio = "*"
 python-dotenv = "*"
