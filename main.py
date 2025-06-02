@@ -1,36 +1,43 @@
-import os, json, base64, asyncio, logging
+import os
+import json
+import base64
+import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
-from twilio.twiml.voice_response import VoiceResponse, Start
+from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from deepgram import Deepgram
 from dotenv import load_dotenv
+
 load_dotenv()
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-log = logging.getLogger("lotus")
-logging.basicConfig(level=logging.INFO)
+if not DEEPGRAM_API_KEY:
+    raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
+
 app = FastAPI()
+
 @app.post("/")
-async def twilio_voice(_: Request):
+async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
     start = Start()
     start.stream(url="wss://silent-sound-1030.fly.dev/media")
     vr.append(start)
     vr.say("Hello, this is Lotus. I'm listening.")
-    vr.pause(length=60)     # keep call alive
-    return Response(str(vr), media_type="application/xml")
+    vr.pause(length=60)
+    return Response(content=str(vr), media_type="application/xml")
+
 @app.websocket("/media")
-async def media(ws: WebSocket):
+async def media_stream(ws: WebSocket):
     await ws.accept()
-    log.info("★ Twilio WS connected")
-    if not DEEPGRAM_API_KEY:
-        log.warning("No DEEPGRAM_API_KEY set – closing socket")
-        await ws.close()
-        return
-    dg = Deepgram(DEEPGRAM_API_KEY)
+    print("★ Twilio WebSocket connected")
+
+    deepgram = Deepgram(DEEPGRAM_API_KEY)
+    dg_connection = None  # ✅ Define up front to avoid UnboundLocalError
+
     try:
-        live = dg.transcription.live()
-        dg_conn = await live.start(
-            {
+        print("⚙️ Connecting to Deepgram live transcription...")
+        live = await deepgram.transcription.live()  # ✅ Proper object from SDK
+        dg_connection = await live.start(
+            options={
                 "model": "nova-3",
                 "language": "en-US",
                 "encoding": "mulaw",
@@ -38,39 +45,46 @@ async def media(ws: WebSocket):
                 "punctuate": True,
             }
         )
-        log.info("✅ Deepgram live connection ready")
+        print("✅ Deepgram connection started")
+
+        async def receiver():
+            async for msg in dg_connection:
+                if "channel" in msg:
+                    transcript = msg["channel"]["alternatives"][0]["transcript"]
+                    if transcript:
+                        print(f"📝 {transcript}")
+
         async def sender():
-            async for raw in ws.iter_text():
+            while True:
+                try:
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    print("✖️  Twilio WebSocket disconnected")
+                    break
+
                 msg = json.loads(raw)
                 event = msg.get("event")
-                if event == "media":
-                    await dg_conn.send(base64.b64decode(msg["media"]["payload"]))
+
+                if event == "start":
+                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+
+                elif event == "media":
+                    payload = base64.b64decode(msg["media"]["payload"])
+                    await dg_connection.send(payload)
+
                 elif event == "stop":
-                    log.info("⏹ Twilio sent <Stop>")
-                    await dg_conn.finish()
+                    print("⏹ Stream stopped by Twilio")
                     break
-        async def receiver():
-            async for result in dg_conn:
-                text = (
-                    result.get("channel", {})
-                    .get("alternatives", [{}])[0]
-                    .get("transcript")
-                )
-                if text:
-                    log.info("📝 %s", text)
-        # run both tasks until one finishes
-        done, pending = await asyncio.wait(
-            {asyncio.create_task(sender()), asyncio.create_task(receiver())},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-    except WebSocketDisconnect:
-        log.info("✖️  Client hung up")
-    except Exception as e:                           # <-- yes, try/except still here
-        log.error("⛔ Deepgram error: %s", e)
+
+        await asyncio.gather(sender(), receiver())
+
+    except Exception as e:
+        print(f"⛔ Deepgram error: {e}")
     finally:
-        if "dg_conn" in locals():
+        if dg_connection:
+            await dg_connection.finish()
+        await ws.close()
+        print("Connection closed")
             try:
                 await dg_conn.finish()
             except Exception:
