@@ -34,7 +34,8 @@ async def media_stream(ws: WebSocket):
     dg_connection = None  # ✅ initialize first
 
     try:
-        dg_connection = await deepgram.transcription.live.start(
+        live = deepgram.transcription.live()
+        dg_connection = await live.start(
             options={
                 "model": "nova-3",
                 "language": "en-US",
