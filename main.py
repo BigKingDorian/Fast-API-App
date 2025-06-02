@@ -35,7 +35,8 @@ async def media_stream(ws: WebSocket):
 
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
-        live = deepgram.transcription.live()  # ✅ Proper object from SDK
+        print("🔍 deepgram.transcription.live =", deepgram.transcription.live)
+        live = deepgram.transcription.live()
         dg_connection = await live.start(
             options={
                 "model": "nova-3",
