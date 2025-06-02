@@ -86,9 +86,3 @@ async def media_stream(ws: WebSocket):
             await dg_connection.finish()
         await ws.close()
         print("★ Connection closed")
-
-    finally:
-        if dg_connection:
-            await dg_connection.finish()
-        await ws.close()
-        print("★ Connection closed")
