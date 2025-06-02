@@ -31,9 +31,12 @@ async def media_stream(ws: WebSocket):
     print("★ Twilio WebSocket connected")
 
     deepgram = Deepgram(DEEPGRAM_API_KEY)
+    dg_connection = None  # ✅ Define up front to avoid UnboundLocalError
 
     try:
-        dg_connection = await deepgram.transcription.live.start(
+        print("⚙️ Connecting to Deepgram live transcription...")
+        live = deepgram.transcription.live()  # ✅ Proper object from SDK
+        dg_connection = await live.start(
             options={
                 "model": "nova-3",
                 "language": "en-US",
@@ -42,6 +45,7 @@ async def media_stream(ws: WebSocket):
                 "punctuate": True,
             }
         )
+        print("✅ Deepgram connection started")
 
         async def receiver():
             async for msg in dg_connection:
@@ -76,7 +80,9 @@ async def media_stream(ws: WebSocket):
 
     except Exception as e:
         print(f"⛔ Deepgram error: {e}")
+
     finally:
-        await dg_connection.finish()
+        if dg_connection:
+            await dg_connection.finish()
         await ws.close()
         print("★ Connection closed")
