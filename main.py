@@ -21,7 +21,9 @@ async def twilio_voice_webhook(_: Request):
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
-        content_type="audio/x-mulaw;rate=8000"
+        track="inbound",
+        name="audio",
+        audio="mulaw;rate=8000"
     )
     vr.append(start)
     vr.say("Hello, this is Lotus. I'm listening.")
