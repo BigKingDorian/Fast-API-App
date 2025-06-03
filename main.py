@@ -33,60 +33,60 @@ async def media_stream(ws: WebSocket):
     deepgram = Deepgram(DEEPGRAM_API_KEY)
     dg_connection = None
 
-try:
-    print("⚙️ Connecting to Deepgram live transcription...")
-    live = await deepgram.transcription.live()  # ← fixed
-    dg_connection = await live.start(
-        options={
-            "model": "nova-3",
-            "language": "en-US",
-            "encoding": "mulaw",
-            "sample_rate": 8000,
-            "punctuate": True,
-        }
-    )
-    print("✅ Deepgram connection started")
+    try:
+        print("⚙️ Connecting to Deepgram live transcription...")
+        live = await deepgram.transcription.live()  # ← fixed
+        dg_connection = await live.start(
+            options={
+                "model": "nova-3",
+                "language": "en-US",
+                "encoding": "mulaw",
+                "sample_rate": 8000,
+                "punctuate": True,
+            }
+        )
+        print("✅ Deepgram connection started")
 
-    async def receiver():
-        async for msg in dg_connection:
-            if "channel" in msg:
-                transcript = msg["channel"]["alternatives"][0]["transcript"]
-                if transcript:
-                    print(f"📝 {transcript}")
-                        
-    async def sender():
-        while True:
-            try:
-                raw = await ws.receive_text()
-            except WebSocketDisconnect:
-                print("✖️ Twilio WebSocket disconnected")
-                break
-            except Exception as e:
-                print(f"⚠️ Unexpected error receiving message: {e}")
-                break
+        async def receiver():
+            async for msg in dg_connection:
+                if "channel" in msg:
+                    transcript = msg["channel"]["alternatives"][0]["transcript"]
+                    if transcript:
+                        print(f"📝 {transcript}")
 
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON decode error: {e}")
-                continue
-
-            event = msg.get("event")
-
-            if event == "start":
-                print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
-
-            elif event == "media":
+        async def sender():
+            while True:
                 try:
-                    payload = base64.b64decode(msg["media"]["payload"])
-                    await dg_connection.send(payload)
-                    print(f"📦 Sent {len(payload)} bytes to Deepgram")
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    print("✖️ Twilio WebSocket disconnected")
+                    break
                 except Exception as e:
-                    print(f"⚠️ Error sending to Deepgram: {e}")
+                    print(f"⚠️ Unexpected error receiving message: {e}")
+                    break
 
-            elif event == "stop":
-                print("⏹ Stream stopped by Twilio")
-                break
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decode error: {e}")
+                    continue
+
+                event = msg.get("event")
+
+                if event == "start":
+                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+
+                elif event == "media":
+                    try:
+                        payload = base64.b64decode(msg["media"]["payload"])
+                        await dg_connection.send(payload)
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram")
+                    except Exception as e:
+                        print(f"⚠️ Error sending to Deepgram: {e}")
+
+                elif event == "stop":
+                    print("⏹ Stream stopped by Twilio")
+                    break
 
         await asyncio.gather(sender(), receiver())
 
