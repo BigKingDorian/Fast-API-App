@@ -33,19 +33,19 @@ async def media_stream(ws: WebSocket):
     deepgram = Deepgram(DEEPGRAM_API_KEY)
     dg_connection = None
 
-    try:
-        print("⚙️ Connecting to Deepgram live transcription...")
-        live = deepgram.transcription.live.v("1")
-        dg_connection = await live.start(
-            options={
-                "model": "nova-3",
-                "language": "en-US",
-                "encoding": "mulaw",
-                "sample_rate": 8000,
-                "punctuate": True,
-            }
-        )
-        print("✅ Deepgram connection started")
+try:
+    print("⚙️ Connecting to Deepgram live transcription...")
+    live = await deepgram.transcription.live()  # ← fixed
+    dg_connection = await live.start(
+        options={
+            "model": "nova-3",
+            "language": "en-US",
+            "encoding": "mulaw",
+            "sample_rate": 8000,
+            "punctuate": True,
+        }
+    )
+    print("✅ Deepgram connection started")
 
         async def receiver():
             async for msg in dg_connection:
