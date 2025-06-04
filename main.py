@@ -38,7 +38,8 @@ async def media_stream(ws: WebSocket):
 
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
-        dg_connection = await deepgram.transcription.live(
+        live = await deepgram.transcription.live()  # ← fixed
+        dg_connection = await live.start(
             options={
                 "model": "nova-3",
                 "language": "en-US",
@@ -51,7 +52,6 @@ async def media_stream(ws: WebSocket):
 
         async def receiver():
             async for msg in dg_connection:
-                print("📥 Deepgram raw message:", msg) 
                 if "channel" in msg:
                     transcript = msg["channel"]["alternatives"][0]["transcript"]
                     if transcript:
@@ -106,3 +106,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed") 
+
