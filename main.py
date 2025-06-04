@@ -52,6 +52,7 @@ async def media_stream(ws: WebSocket):
 
         async def receiver():
             async for msg in dg_connection:
+                print("📥 Deepgram raw message:", msg) 
                 if "channel" in msg:
                     transcript = msg["channel"]["alternatives"][0]["transcript"]
                     if transcript:
