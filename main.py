@@ -41,17 +41,22 @@ async def media_stream(ws: WebSocket):
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
 
-        # ✅ Create live transcription connection
+       # ✅ Create live transcription connection
         dg_connection = deepgram.listen.live.v("1")
 
-        # ✅ Transcript event handler
+        # ✅ Transcript event handler (FIXED for SDK v3 dict format)
         def on_transcript(transcript, **kwargs):
             try:
-                sentence = transcript.channel.alternatives[0].transcript
+                sentence = (
+                    transcript.get("channel", {})
+                    .get("alternatives", [{}])[0]
+                    .get("transcript", "")
+                )
                 if sentence:
                     print(f"📝 {sentence}")
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
+                print("Transcript object was:", transcript)
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
