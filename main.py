@@ -41,10 +41,10 @@ async def media_stream(ws: WebSocket):
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
 
-        # ✅ NEW: Create connection object
+        # ✅ Create live transcription connection
         dg_connection = deepgram.listen.live.v("1")
 
-        # ✅ NEW: Transcript callback
+        # ✅ Transcript event handler
         def on_transcript(transcript, **kwargs):
             try:
                 sentence = transcript.channel.alternatives[0].transcript
@@ -55,17 +55,18 @@ async def media_stream(ws: WebSocket):
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
-        # ✅ NEW: Start transcription stream
+        # ✅ Start Deepgram stream
         options = LiveOptions(
             model="nova-3",
             language="en-US",
             encoding="mulaw",
             sample_rate=8000,
-            punctuate=True
+            punctuate=True,
         )
         dg_connection.start(options)
+        print("✅ Deepgram connection started")
 
-        # ✅ Sender loop (unchanged except for .send)
+        # 🎧 Receive media from Twilio and forward to Deepgram
         async def sender():
             while True:
                 try:
@@ -91,7 +92,7 @@ async def media_stream(ws: WebSocket):
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.send(payload)  # ✅ no await in v3
+                        dg_connection.send(payload)  # ✅ v3: no await
                         print(f"📦 Sent {len(payload)} bytes to Deepgram")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
@@ -100,14 +101,14 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     break
 
-        await sender()  # ✅ Removed receiver(), handled by on_transcript
+        await sender()  # ✅ Only sender needed — receiver handled via events
 
     except Exception as e:
         print(f"⛔ Deepgram error: {e}")
     finally:
         if dg_connection:
             try:
-                dg_connection.finish()  # ✅ no await in v3
+                dg_connection.finish()  # ✅ v3: no await
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
         try:
