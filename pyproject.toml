@@ -6,8 +6,8 @@ authors = ["Your Name <your@email.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-websockets = "^10.0"
-deepgram-sdk = "^3.0.0"
+websockets = "^12.0"
+deepgram-sdk = "^3.0.9"
 fastapi = "*"
 uvicorn = "*"
 twilio = "^8.0.0"
