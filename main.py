@@ -42,7 +42,7 @@ async def media_stream(ws: WebSocket):
         print("⚙️ Connecting to Deepgram live transcription...")
 
         # ✅ Create live transcription connection
-        dg_connection = deepgram.listen.live.v("1")
+        dg_connection = await deepgram.listen.live.v("1")
 
         # ✅ Transcript event handler
         def on_transcript(transcript, **kwargs):
