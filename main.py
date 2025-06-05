@@ -41,8 +41,14 @@ async def media_stream(ws: WebSocket):
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
 
-        # ✅ Create live transcription connection
-        dg_connection = deepgram.listen.live.v("1")
+        # ✅ Create live transcription connection using async-compatible workaround
+        try:
+            live_client = deepgram.listen.live
+            dg_connection = await asyncio.to_thread(live_client.v, "1")
+        except Exception as e:
+            print(f"⛔ Failed to create Deepgram connection: {e}")
+            await ws.close()
+            return
 
         # ✅ Transcript event handler
         def on_transcript(transcript, **kwargs):
@@ -116,7 +122,3 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8080)
