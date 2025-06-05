@@ -53,7 +53,8 @@ async def media_stream(ws: WebSocket):
         # ✅ Transcript event handler
         def on_transcript(transcript, **kwargs):
             try:
-                sentence = transcript.channel.alternatives[0].transcript
+                print("🧾 Raw transcript:", transcript)  # Add this log
+                sentence = transcript.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
                 if sentence:
                     print(f"📝 {sentence}")
             except Exception as e:
