@@ -54,7 +54,7 @@ async def media_stream(ws: WebSocket):
         def on_transcript(transcript, **kwargs):
             try:
                 print("🧾 Raw transcript:", transcript)
-                sentence = transcript.transcript
+                sentence = transcript.path("channel.alternatives.0.transcript")
                 if sentence:
                     print(f"📝 {sentence}")
             except Exception as e:
