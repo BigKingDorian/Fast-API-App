@@ -8,7 +8,7 @@ from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from dotenv import load_dotenv
 
 # ✅ NEW: Updated Deepgram imports for SDK v3
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+from deepgram import LiveTranscriptionEvents, LiveTranscriptionResult
 
 load_dotenv()
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
