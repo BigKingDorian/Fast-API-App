@@ -8,7 +8,7 @@ from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from dotenv import load_dotenv
 
 # ✅ NEW: Updated Deepgram imports for SDK v3
-from deepgram import LiveTranscriptionEvents, LiveTranscriptionResult
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
 load_dotenv()
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
@@ -50,12 +50,12 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        # ✅ Transcript event handler using v3 SDK format
-        def on_transcript(transcript: LiveTranscriptionResult, **kwargs):
+        # ✅ Transcript event handler
+        def on_transcript(transcript, **kwargs):
             try:
-                alt = transcript.alternatives[0]
-                if alt.transcript:
-                    print(f"📝 Transcript: {alt.transcript}")
+                sentence = transcript.channel.alternatives[0].transcript
+                if sentence:
+                    print(f"📝 {sentence}")
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
 
