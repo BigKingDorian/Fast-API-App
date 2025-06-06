@@ -70,6 +70,7 @@ async def media_stream(ws: WebSocket):
             sample_rate=8000,
             punctuate=True,
         )
+        print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
 
@@ -100,7 +101,7 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)  # ✅ v3: no await
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram")
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
