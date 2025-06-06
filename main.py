@@ -50,13 +50,12 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        # ✅ Transcript event handler
-        def on_transcript(transcript, **kwargs):
+        # ✅ Transcript event handler using v3 SDK format
+        def on_transcript(transcript: LiveTranscriptionResult, **kwargs):
             try:
-                print("🧾 Raw transcript:", transcript)
-                sentence = transcript.path("channel.alternatives.0.transcript")
-                if sentence:
-                    print(f"📝 {sentence}")
+                alt = transcript.alternatives[0]
+                if alt.transcript:
+                    print(f"📝 Transcript: {alt.transcript}")
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
 
