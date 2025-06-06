@@ -51,13 +51,15 @@ async def media_stream(ws: WebSocket):
             return
 
         # ✅ Transcript event handler
-        def on_transcript(transcript, **kwargs):
-            try:
-                sentence = result["channel"]["alternatives"][0]["transcript"]
-                if sentence:
-                    print(f"📝 {sentence}")
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
+        def on_transcript(data, **kwargs):
+    try:
+        data["audio"] = data.pop("channel")
+        data["audio"]["alternatives"][0]["text"] = data["audio"]["alternatives"][0].pop("transcript")
+        sentence = data["audio"]["alternatives"][0]["text"]
+        if sentence:
+            print(f"📝 {sentence}")
+    except Exception as e:
+        print(f"⚠️ Error handling transcript: {e}")
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
