@@ -52,18 +52,18 @@ async def media_stream(ws: WebSocket):
 
         def on_transcript(data, **kwargs):
             try:
-                if hasattr(data, "to_dict"):
-                    data = data.to_dict()  # convert to standard dictionary
-
                 print("📥 RAW transcript event:")
-                import json
-                print(json.dumps(data, indent=2))
+                print("📂 Type of data:", type(data))
 
-                sentence = data["channel"]["alternatives"][0]["transcript"]
-                if sentence:
-                    print(f"📝 {sentence}")
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
+                if hasattr(data, "to_dict"):
+                    data = data.to_dict()
+                    import json
+                    print(json.dumps(data, indent=2))
+                else:
+                    # Fallback: show attributes manually
+                    print("🔍 Available attributes:", dir(data))
+                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                    print(data.__dict__)  # might show internal data
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
