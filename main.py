@@ -50,21 +50,29 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-# ✅ Transcript event handler
-        def on_transcript(data, **kwargs):
+        # ✅ Transcript event handler
+        def on_transcript(transcript, metadata=None):
             try:
                 print("📥 RAW transcript event:")
-                print("📂 Type of data:", type(data))
+                print("📂 Type of data:", type(transcript))
 
-                if hasattr(data, "to_dict"):
-                    data = data.to_dict()
+                if hasattr(transcript, "to_dict"):
+                    payload = transcript.to_dict()
                     import json
-                    print(json.dumps(data, indent=2))
+                    print(json.dumps(payload, indent=2))
+
+                    # Try to extract sentence
+                    try:
+                        sentence = payload["channel"]["alternatives"][0]["transcript"]
+                        if sentence:
+                            print(f"📝 {sentence}")
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
-                    # Fallback: show attributes manually
-                    print("🔍 Available attributes:", dir(data))
+                    # Fallback logging
+                    print("🔍 Available attributes:", dir(transcript))
                     print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(data.__dict__)  # might show internal data
+                    print(transcript.__dict__)
 
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
