@@ -50,11 +50,11 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        def on_transcript(data, **kwargs):
-            print(f"📩 Raw event: {data}")
+        # ✅ Transcript event handler
+        def on_transcript(transcript, **kwargs):
+            print(f"Transcript raw object: {transcript}")
             try:
-                # Handle normal Deepgram structure
-                sentence = data.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
+                sentence = transcript.channel.alternatives[0].transcript
                 if sentence:
                     print(f"📝 {sentence}")
             except Exception as e:
@@ -124,4 +124,3 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
