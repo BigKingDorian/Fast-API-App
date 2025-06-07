@@ -50,6 +50,7 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
+# ✅ Transcript event handler
         def on_transcript(data, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -65,6 +66,10 @@ async def media_stream(ws: WebSocket):
                     print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
                     print(data.__dict__)  # might show internal data
 
+            except Exception as e:
+                print(f"⚠️ Error handling transcript: {e}")
+
+        # ✅ Connect transcript handler to Deepgram
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         # ✅ Start Deepgram stream
