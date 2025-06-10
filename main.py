@@ -74,7 +74,7 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        # ✅ Transcript event handler
+       # ✅ Transcript event handler
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -96,11 +96,15 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
-                            # ✅ Send transcript to GPT and log response
+                            # ✅ Send transcript to GPT and log response using thread-safe method
                             try:
                                 loop = asyncio.get_event_loop()
-                                gpt_response = loop.run_until_complete(get_gpt_response(sentence))
-                                print(f"🤖 GPT: {gpt_response}")
+                                asyncio.run_coroutine_threadsafe(
+                                    get_gpt_response(sentence),
+                                    loop
+                                ).add_done_callback(
+                                    lambda fut: print(f"🤖 GPT: {fut.result()}")
+                                )
                             except Exception as gpt_e:
                                 print(f"⚠️ GPT handler error: {gpt_e}")
                     except Exception as inner_e:
