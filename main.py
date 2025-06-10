@@ -7,11 +7,14 @@ from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from dotenv import load_dotenv
 
+# ✅ Load .env before trying to access API keys
+load_dotenv()
+
 # ✅ NEW: Updated Deepgram imports for SDK v3
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
-# ✅ Load environment variables before using them
-load_dotenv()
+# ✅ NEW: OpenAI GPT Integration
+from openai import OpenAI
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -21,8 +24,6 @@ if not DEEPGRAM_API_KEY:
 if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY in environment")
 
-# ✅ NEW: OpenAI GPT Integration
-from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ✅ GPT handler function
