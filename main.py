@@ -39,6 +39,11 @@ async def get_gpt_response(user_text: str) -> str:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
 
+# ✅ Helper to run GPT in executor from a thread
+async def print_gpt_response(sentence: str):
+    response = await get_gpt_response(sentence)
+    print(f"🤖 GPT: {response}")
+
 app = FastAPI()
 
 @app.post("/")
@@ -59,13 +64,13 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+    loop = asyncio.get_running_loop()  # ✅ capture main thread loop
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
 
-        # ✅ Create live transcription connection using async-compatible workaround
         try:
             live_client = deepgram.listen.live
             dg_connection = await asyncio.to_thread(live_client.v, "1")
@@ -74,7 +79,6 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-       # ✅ Transcript event handler
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -96,14 +100,10 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
-                            # ✅ Send transcript to GPT and log response using thread-safe method
                             try:
-                                loop = asyncio.get_event_loop()
-                                asyncio.run_coroutine_threadsafe(
-                                    get_gpt_response(sentence),
-                                    loop
-                                ).add_done_callback(
-                                    lambda fut: print(f"🤖 GPT: {fut.result()}")
+                                loop.run_in_executor(
+                                    None,
+                                    lambda: asyncio.run(print_gpt_response(sentence))
                                 )
                             except Exception as gpt_e:
                                 print(f"⚠️ GPT handler error: {gpt_e}")
@@ -113,14 +113,11 @@ async def media_stream(ws: WebSocket):
                     print("🔍 Available attributes:", dir(result))
                     print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
                     print(result.__dict__)
-
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
 
-        # ✅ Connect transcript handler to Deepgram
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
-        # ✅ Start Deepgram stream
         options = LiveOptions(
             model="nova-3",
             language="en-US",
@@ -132,7 +129,6 @@ async def media_stream(ws: WebSocket):
         dg_connection.start(options)
         print("✅ Deepgram connection started")
 
-        # 🎧 Receive media from Twilio and forward to Deepgram
         async def sender():
             while True:
                 try:
@@ -158,7 +154,7 @@ async def media_stream(ws: WebSocket):
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.send(payload)  # ✅ v3: no await
+                        dg_connection.send(payload)
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
@@ -167,14 +163,14 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     break
 
-        await sender()  # ✅ Only sender needed — receiver handled via events
+        await sender()
 
     except Exception as e:
         print(f"⛔ Deepgram error: {e}")
     finally:
         if dg_connection:
             try:
-                dg_connection.finish()  # ✅ v3: no await
+                dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
         try:
@@ -182,3 +178,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
+
