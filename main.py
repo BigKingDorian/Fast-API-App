@@ -10,11 +10,25 @@ from dotenv import load_dotenv
 # ✅ NEW: Updated Deepgram imports for SDK v3
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
+# ✅ NEW: Import OpenAI
+import openai
+
+# ✅ Load environment variables
 load_dotenv()
+
+# ✅ Get API keys
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
+if not OPENAI_API_KEY:
+    raise RuntimeError("Missing OPENAI_API_KEY in environment")
 
+# ✅ Set OpenAI key
+openai.api_key = OPENAI_API_KEY
+
+# ✅ FastAPI app
 app = FastAPI()
 
 @app.post("/")
