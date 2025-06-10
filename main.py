@@ -12,7 +12,7 @@ from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
 # ✅ NEW: OpenAI GPT Integration
 from openai import OpenAI
-client = OpenAI()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 load_dotenv()
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
