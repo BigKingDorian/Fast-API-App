@@ -10,11 +10,9 @@ from dotenv import load_dotenv
 # ✅ NEW: Updated Deepgram imports for SDK v3
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
-# ✅ NEW: OpenAI GPT Integration
-from openai import OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# ✅ Load environment variables before using them
 load_dotenv()
+
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -23,7 +21,9 @@ if not DEEPGRAM_API_KEY:
 if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY in environment")
 
-client.api_key = OPENAI_API_KEY
+# ✅ NEW: OpenAI GPT Integration
+from openai import OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
