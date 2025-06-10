@@ -10,13 +10,11 @@ from dotenv import load_dotenv
 # ✅ NEW: Updated Deepgram imports for SDK v3
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
-# ✅ NEW: Import OpenAI
-import openai
+# ✅ NEW: OpenAI GPT Integration
+from openai import OpenAI
+client = OpenAI()
 
-# ✅ Load environment variables
 load_dotenv()
-
-# ✅ Get API keys
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -25,10 +23,21 @@ if not DEEPGRAM_API_KEY:
 if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY in environment")
 
-# ✅ Set OpenAI key
-openai.api_key = OPENAI_API_KEY
+client.api_key = OPENAI_API_KEY
 
-# ✅ FastAPI app
+# ✅ GPT handler function
+async def get_gpt_response(user_text: str) -> str:
+    try:
+        response = client.responses.create(
+            model="gpt-4o",
+            instructions="You are a helpful assistant who responds clearly and concisely.",
+            input=user_text
+        )
+        return response.output_text
+    except Exception as e:
+        print(f"⚠️ GPT Error: {e}")
+        return "[GPT failed to respond]"
+
 app = FastAPI()
 
 @app.post("/")
@@ -86,6 +95,13 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
+                            # ✅ Send transcript to GPT and log response
+                            try:
+                                loop = asyncio.get_event_loop()
+                                gpt_response = loop.run_until_complete(get_gpt_response(sentence))
+                                print(f"🤖 GPT: {gpt_response}")
+                            except Exception as gpt_e:
+                                print(f"⚠️ GPT handler error: {gpt_e}")
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
