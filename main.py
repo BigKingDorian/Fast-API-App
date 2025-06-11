@@ -145,7 +145,7 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
-                            asyncio.create_task(process_and_respond(sentence))
+                            loop.create_task(process_and_respond(sentence))
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
