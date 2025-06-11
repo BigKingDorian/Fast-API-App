@@ -2,11 +2,11 @@ import os
 import json
 import base64
 import asyncio
+import httpx  # ✅ Required for ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 
-# ✅ Load .env before any getenv calls
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -16,6 +16,43 @@ from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 # ✅ OpenAI setup
 from openai import OpenAI
 
+# ✅ Audio conversion
+from pydub import AudioSegment
+import io
+
+# ✅ ElevenLabs setup
+ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
+ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")  # e.g. "JBFqnCBsd6RMkjVDRZzb"
+
+async def text_to_speech_elevenlabs(text: str) -> bytes:
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}"
+    headers = {
+        "Content-Type": "application/json",
+        "xi-api-key": ELEVEN_API_KEY,
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.8,
+            "style": 0,
+            "use_speaker_boost": True
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        return response.content  # MP3 bytes
+
+def convert_mp3_to_mulaw_8k(mp3_data: bytes) -> bytes:
+    audio = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
+    audio = audio.set_channels(1).set_frame_rate(8000).set_sample_width(1)
+    out_io = io.BytesIO()
+    audio.export(out_io, format="mulaw")
+    return out_io.getvalue()
+
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -24,10 +61,8 @@ if not DEEPGRAM_API_KEY:
 if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY in environment")
 
-# ✅ Create the OpenAI client after loading the env
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
         response = client.responses.create(
@@ -40,7 +75,6 @@ async def get_gpt_response(user_text: str) -> str:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
 
-# ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
     print(f"🤖 GPT: {response}")
@@ -65,7 +99,7 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-    loop = asyncio.get_running_loop()  # ✅ capture main thread loop
+    loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
@@ -79,6 +113,17 @@ async def media_stream(ws: WebSocket):
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
             return
+
+        async def process_and_respond(text: str):
+            try:
+                gpt_response = await get_gpt_response(text)
+                print(f"🤖 GPT: {gpt_response}")
+                audio_data = await text_to_speech_elevenlabs(gpt_response)
+                mulaw_audio = convert_mp3_to_mulaw_8k(audio_data)
+                await ws.send_bytes(mulaw_audio)
+                print("🔊 Sent converted audio to Twilio")
+            except Exception as e:
+                print(f"⚠️ GPT/ElevenLabs/Twilio error: {e}")
 
         def on_transcript(*args, **kwargs):
             try:
@@ -94,20 +139,13 @@ async def media_stream(ws: WebSocket):
 
                 if hasattr(result, "to_dict"):
                     payload = result.to_dict()
-                    import json
                     print(json.dumps(payload, indent=2))
 
                     try:
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
-                            try:
-                                loop.run_in_executor(
-                                    None,
-                                    lambda: asyncio.run(print_gpt_response(sentence))
-                                )
-                            except Exception as gpt_e:
-                                print(f"⚠️ GPT handler error: {gpt_e}")
+                            asyncio.create_task(process_and_respond(sentence))
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
@@ -179,4 +217,3 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
