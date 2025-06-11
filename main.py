@@ -28,7 +28,7 @@ openai.api_key = OPENAI_API_KEY
 
 app = FastAPI()
 
-@app.post("/incoming-call")
+@app.post("/")
 async def incoming_call(request: Request):
     """Twilio Voice webhook for incoming calls: returns TwiML that starts the media stream."""
     host = request.url.hostname
