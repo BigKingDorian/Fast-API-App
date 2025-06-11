@@ -94,12 +94,26 @@ async def twilio_voice_webhook(_: Request):
 
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
-    await process_and_respond("Hello, this is Lotus. I'm listening.")
+    await ws.accept()
     print("★ Twilio WebSocket connected")
 
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
+
+    async def process_and_respond(text: str):
+        try:
+            gpt_response = await get_gpt_response(text)
+            print(f"🤖 GPT: {gpt_response}")
+            audio_data = await text_to_speech_elevenlabs(gpt_response)
+            mulaw_audio = convert_mp3_to_mulaw_8k(audio_data)
+            await ws.send_bytes(mulaw_audio)
+            print("🔊 Sent converted audio to Twilio")
+        except Exception as e:
+            print(f"⚠️ GPT/ElevenLabs/Twilio error: {e}")
+
+    # ✅ Speak immediately
+    await process_and_respond("Hello, this is Lotus. I'm listening.")
 
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
@@ -111,17 +125,6 @@ async def media_stream(ws: WebSocket):
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
             return
-
-        async def process_and_respond(text: str):
-            try:
-                gpt_response = await get_gpt_response(text)
-                print(f"🤖 GPT: {gpt_response}")
-                audio_data = await text_to_speech_elevenlabs(gpt_response)
-                mulaw_audio = convert_mp3_to_mulaw_8k(audio_data)
-                await ws.send_bytes(mulaw_audio)
-                print("🔊 Sent converted audio to Twilio")
-            except Exception as e:
-                print(f"⚠️ GPT/ElevenLabs/Twilio error: {e}")
 
         def on_transcript(*args, **kwargs):
             try:
