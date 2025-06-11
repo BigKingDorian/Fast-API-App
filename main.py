@@ -94,7 +94,7 @@ async def twilio_voice_webhook(_: Request):
 
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
-    await ws.accept()
+    await process_and_respond("Hello, this is Lotus. I'm listening.")
     print("★ Twilio WebSocket connected")
 
     loop = asyncio.get_running_loop()
