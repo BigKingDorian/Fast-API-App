@@ -1,220 +1,286 @@
-import os
-import json
-import base64
-import asyncio
-import httpx  # ✅ Required for ElevenLabs API
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import Response
-from twilio.twiml.voice_response import VoiceResponse, Start, Stream
-
+import os, io, json, base64
+from fastapi import FastAPI, WebSocket, Request
+from fastapi.responses import HTMLResponse
+from fastapi.websockets import WebSocketDisconnect
+from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 from dotenv import load_dotenv
+import requests
+import audioop
+from pydub import AudioSegment
+# (Assuming Deepgram SDK or websocket is imported and configured elsewhere)
+
 load_dotenv()
 
-# ✅ Deepgram setup
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+# Load required API keys and config from environment
+DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
+ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # Voice ID for ElevenLabs TTS
+XI_MODEL_ID = os.getenv('XI_MODEL_ID')  # (Optional) ElevenLabs model ID for TTS
+SYSTEM_MESSAGE = os.getenv('SYSTEM_MESSAGE', "You are a helpful AI assistant.")  # AI persona
 
-# ✅ OpenAI setup
-from openai import OpenAI
-
-# ✅ Audio conversion
-from pydub import AudioSegment
-import io
-
-# ✅ ElevenLabs setup
-ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
-ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID")  # e.g. "JBFqnCBsd6RMkjVDRZzb"
-
-async def text_to_speech_elevenlabs(text: str) -> bytes:
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}"
-    headers = {
-        "Content-Type": "application/json",
-        "xi-api-key": ELEVEN_API_KEY,
-    }
-    payload = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.8,
-            "style": 0,
-            "use_speaker_boost": True
-        }
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
-        return response.content  # MP3 bytes
-
-def convert_mp3_to_mulaw_8k(mp3_data: bytes) -> bytes:
-    audio = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
-    audio = audio.set_channels(1).set_frame_rate(8000).set_sample_width(1)
-    out_io = io.BytesIO()
-    audio.export(out_io, format="mulaw")
-    return out_io.getvalue()
-
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not DEEPGRAM_API_KEY:
-    raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
+# Ensure essential keys are present
 if not OPENAI_API_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY in environment")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-async def get_gpt_response(user_text: str) -> str:
-    try:
-        response = client.responses.create(
-            model="gpt-4o",
-            instructions="You are a helpful assistant who responds clearly and concisely.",
-            input=user_text
-        )
-        return response.output_text
-    except Exception as e:
-        print(f"⚠️ GPT Error: {e}")
-        return "[GPT failed to respond]"
-
-async def print_gpt_response(sentence: str):
-    response = await get_gpt_response(sentence)
-    print(f"🤖 GPT: {response}")
+    raise ValueError("Missing the OpenAI API key. Please set it in the environment.")
+# Set OpenAI API key for the openai client
+import openai
+openai.api_key = OPENAI_API_KEY
 
 app = FastAPI()
 
-@app.post("/")
-async def twilio_voice_webhook(_: Request):
-    vr = VoiceResponse()
-    start = Start()
-    start.stream(
-        url="wss://silent-sound-1030.fly.dev/media",
-        content_type="audio/x-mulaw;rate=8000"
-    )
-    vr.append(start)
-    return Response(content=str(vr), media_type="application/xml")
+@app.post("/incoming-call")
+async def incoming_call(request: Request):
+    """Twilio Voice webhook for incoming calls: returns TwiML that starts the media stream."""
+    host = request.url.hostname
+    response = VoiceResponse()
+    # Removed Twilio <Say> initial greeting – the AI will handle greeting via the WebSocket
+    connect = Connect()
+    connect.stream(url=f"wss://{host}/media-stream")
+    response.append(connect)
+    return HTMLResponse(str(response), status_code=200)
 
-@app.websocket("/media")
-async def media_stream(ws: WebSocket):
-    await ws.accept()
-    print("★ Twilio WebSocket connected")
-
-    loop = asyncio.get_running_loop()
-    deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-    dg_connection = None
-
-    async def process_and_respond(text: str):
-        try:
-            gpt_response = await get_gpt_response(text)
-            print(f"🤖 GPT: {gpt_response}")
-            audio_data = await text_to_speech_elevenlabs(gpt_response)
-            mulaw_audio = convert_mp3_to_mulaw_8k(audio_data)
-            await ws.send_bytes(mulaw_audio)
-            print("🔊 Sent converted audio to Twilio")
-        except Exception as e:
-            print(f"⚠️ GPT/ElevenLabs/Twilio error: {e}")
-
-    # ✅ Speak immediately
-    await process_and_respond("Hello, this is Lotus. I'm listening.")
-
+@app.websocket("/media-stream")
+async def media_stream(websocket: WebSocket):
+    """
+    Handle the bidirectional media stream with Twilio.
+    Receives audio from Twilio (caller -> AI) and sends audio back (AI -> caller).
+    """
+    await websocket.accept()
+    # (Optional) Initialize Deepgram live transcription connection if using Deepgram SDK
+    dg_socket = None
     try:
-        print("⚙️ Connecting to Deepgram live transcription...")
-
-        try:
-            live_client = deepgram.listen.live
-            dg_connection = await asyncio.to_thread(live_client.v, "1")
-        except Exception as e:
-            print(f"⛔ Failed to create Deepgram connection: {e}")
-            await ws.close()
-            return
-
-        def on_transcript(*args, **kwargs):
-            try:
-                print("📥 RAW transcript event:")
-                result = kwargs.get("result") or (args[0] if args else None)
-                metadata = kwargs.get("metadata")
-
-                if result is None:
-                    print("⚠️ No result received.")
-                    return
-
-                print("📂 Type of result:", type(result))
-
-                if hasattr(result, "to_dict"):
-                    payload = result.to_dict()
-                    print(json.dumps(payload, indent=2))
-
-                    try:
-                        sentence = payload["channel"]["alternatives"][0]["transcript"]
-                        if sentence:
-                            print(f"📝 {sentence}")
-                            loop.create_task(process_and_respond(sentence))
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                else:
-                    print("🔍 Available attributes:", dir(result))
-                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(result.__dict__)
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
-
-        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-
-        options = LiveOptions(
-            model="nova-3",
-            language="en-US",
-            encoding="mulaw",
-            sample_rate=8000,
-            punctuate=True,
-        )
-        print("✏️ LiveOptions being sent:", options.__dict__)
-        dg_connection.start(options)
-        print("✅ Deepgram connection started")
-
-        async def sender():
-            while True:
-                try:
-                    raw = await ws.receive_text()
-                except WebSocketDisconnect:
-                    print("✖️ Twilio WebSocket disconnected")
-                    break
-                except Exception as e:
-                    print(f"⚠️ Unexpected error receiving message: {e}")
-                    break
-
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError as e:
-                    print(f"⚠️ JSON decode error: {e}")
-                    continue
-
-                event = msg.get("event")
-
-                if event == "start":
-                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
-
-                elif event == "media":
-                    try:
-                        payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.send(payload)
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
-                    except Exception as e:
-                        print(f"⚠️ Error sending to Deepgram: {e}")
-
-                elif event == "stop":
-                    print("⏹ Stream stopped by Twilio")
-                    break
-
-        await sender()
-
+        # Example: using Deepgram SDK to start live transcription (punctuate, etc.)
+        # from deepgram import Deepgram
+        # deepgram = Deepgram(DEEPGRAM_API_KEY)
+        # dg_socket = await deepgram.transcription.live({'punctuate': True, 'interim_results': False})
+        # if dg_socket: 
+        #     dg_socket.register_handler(..., handle_transcript)
+        pass
     except Exception as e:
-        print(f"⛔ Deepgram error: {e}")
-    finally:
-        if dg_connection:
-            try:
-                dg_connection.finish()
-            except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
+        app.logger.error(f"Deepgram connection error: {e}")
+
+    # Conversation state for OpenAI
+    conversation = [ {"role": "system", "content": SYSTEM_MESSAGE} ]
+    stream_sid = None
+    sequence_number = 0
+    outbound_chunk_count = 0
+
+    # Define a handler for finalized transcripts from Deepgram
+    async def handle_transcript(transcript: dict):
+        """Handle final transcriptions from Deepgram by querying OpenAI and streaming the response."""
+        nonlocal sequence_number, outbound_chunk_count
+        if not transcript.get("is_final", False):
+            return  # ignore interim transcripts if any
+        user_text = transcript.get("text", "").strip()
+        if not user_text:
+            return
+        app.logger.info(f"Caller said: {user_text}")
+        # Append user message to conversation history
+        conversation.append({"role": "user", "content": user_text})
+        # Get response from OpenAI
         try:
-            await ws.close()
+            ai_resp = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=conversation
+            )
+            assistant_text = ai_resp.choices[0].message.content.strip()
         except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
-        print("✅ Connection closed")
+            app.logger.error(f"OpenAI API error: {e}")
+            # Fallback to a default response on error
+            assistant_text = "I'm sorry, I encountered an error."
+        # Append assistant response to conversation history
+        conversation.append({"role": "assistant", "content": assistant_text})
+        app.logger.info(f"AI response: {assistant_text}")
+        # Convert assistant_text to speech using ElevenLabs (direct μ-law if possible)
+        audio_data_ulaw = b''
+        try:
+            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream?output_format=ulaw_8000&optimize_streaming_latency=3"
+            tts_headers = {
+                "xi-api-key": ELEVENLABS_API_KEY,
+                "Content-Type": "application/json",
+                "Accept": "audio/wav"
+            }
+            tts_body = {"text": assistant_text}
+            if XI_MODEL_ID:
+                tts_body["model_id"] = XI_MODEL_ID
+            tts_res = requests.post(tts_url, headers=tts_headers, json=tts_body)
+            if tts_res.status_code == 200:
+                audio_data_ulaw = tts_res.content
+                # Strip WAV header if present
+                if audio_data_ulaw[:4] == b'RIFF':
+                    audio_data_ulaw = audio_data_ulaw[44:]
+            else:
+                app.logger.error(f"ElevenLabs TTS HTTP {tts_res.status_code}: {tts_res.text}")
+        except Exception as e:
+            app.logger.error(f"ElevenLabs TTS (ulaw_8000) error: {e}")
+        # Fallback to MP3 conversion if direct ulaw failed
+        if not audio_data_ulaw:
+            try:
+                fb_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+                fb_headers = {
+                    "xi-api-key": ELEVENLABS_API_KEY,
+                    "Content-Type": "application/json"
+                }
+                fb_body = {"text": assistant_text}
+                if XI_MODEL_ID:
+                    fb_body["model_id"] = XI_MODEL_ID
+                fb_res = requests.post(fb_url, headers=fb_headers, json=fb_body)
+                fb_res.raise_for_status()
+                audio_mp3 = fb_res.content
+                # Convert MP3 to 8kHz mono PCM and then to μ-law
+                audio_segment = AudioSegment.from_file(io.BytesIO(audio_mp3), format="mp3")
+                audio_segment = audio_segment.set_frame_rate(8000).set_channels(1).set_sample_width(2)
+                pcm_data = audio_segment.raw_data  # 16-bit PCM audio
+                audio_data_ulaw = audioop.lin2ulaw(pcm_data, 2)
+            except Exception as e:
+                app.logger.error(f"ElevenLabs MP3 fallback error: {e}")
+                audio_data_ulaw = b''
+        # Stream the audio data back to Twilio in chunks
+        if audio_data_ulaw:
+            chunk_size = 160  # 160 bytes = 20ms of 8kHz μ-law audio
+            for i in range(0, len(audio_data_ulaw), chunk_size):
+                chunk = audio_data_ulaw[i:i+chunk_size]
+                if len(chunk) < chunk_size:
+                    # Pad last chunk with silence (μ-law 0xFF) if needed
+                    chunk = chunk.ljust(chunk_size, b'\xFF')
+                outbound_chunk_count += 1
+                sequence_number += 1
+                payload_b64 = base64.b64encode(chunk).decode('ascii')
+                outbound_msg = {
+                    "event": "media",
+                    "streamSid": stream_sid,
+                    "sequenceNumber": str(sequence_number),
+                    "media": {
+                        "track": "outbound",
+                        "chunk": str(outbound_chunk_count),
+                        "timestamp": str(int((outbound_chunk_count - 1) * 20)),  # in milliseconds
+                        "payload": payload_b64
+                    }
+                }
+                try:
+                    await websocket.send_text(json.dumps(outbound_msg))
+                except Exception as e:
+                    app.logger.error(f"Error sending audio chunk: {e}")
+        else:
+            app.logger.error("No audio data to stream back to Twilio (assistant_text was empty or TTS failed).")
+
+    # Main loop: receive media stream messages from Twilio and feed to Deepgram
+    try:
+        while True:
+            message = await websocket.receive_text()
+            data = json.loads(message)
+            event = data.get("event")
+            if event == "start":
+                # Connection started – store Stream SID and initial sequence
+                stream_sid = data['start']['streamSid']
+                sequence_number = int(data.get("sequenceNumber", 0))
+                app.logger.info(f"Media stream started (Stream SID: {stream_sid})")
+                # Generate initial greeting from OpenAI
+                try:
+                    # Prompt the assistant to produce a greeting
+                    conversation.append({"role": "user", "content": "Hello"})
+                    ai_greet = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo",
+                        messages=conversation
+                    )
+                    greet_text = ai_greet.choices[0].message.content.strip()
+                except Exception as e:
+                    app.logger.error(f"OpenAI greeting error: {e}")
+                    greet_text = "Hello! How can I assist you today?"
+                # Add the assistant's greeting to conversation history
+                conversation.append({"role": "assistant", "content": greet_text})
+                app.logger.info(f"AI initial greeting: {greet_text}")
+                # Synthesize greeting to speech via ElevenLabs and stream it
+                audio_data = b''
+                try:
+                    tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream?output_format=ulaw_8000&optimize_streaming_latency=3"
+                    tts_headers = {
+                        "xi-api-key": ELEVENLABS_API_KEY,
+                        "Content-Type": "application/json",
+                        "Accept": "audio/wav"
+                    }
+                    tts_body = {"text": greet_text}
+                    if XI_MODEL_ID:
+                        tts_body["model_id"] = XI_MODEL_ID
+                    res = requests.post(tts_url, headers=tts_headers, json=tts_body)
+                    if res.status_code == 200:
+                        audio_data = res.content
+                        if audio_data[:4] == b'RIFF':  # strip WAV header if present
+                            audio_data = audio_data[44:]
+                    else:
+                        app.logger.error(f"ElevenLabs greeting TTS HTTP {res.status_code}: {res.text}")
+                except Exception as e:
+                    app.logger.error(f"ElevenLabs greeting TTS error: {e}")
+                if not audio_data:
+                    # Fallback to MP3 if direct ulaw stream failed
+                    try:
+                        fb_res = requests.post(
+                            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                            headers={"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"},
+                            json={"text": greet_text, **({"model_id": XI_MODEL_ID} if XI_MODEL_ID else {})}
+                        )
+                        fb_res.raise_for_status()
+                        audio_mp3 = fb_res.content
+                        # Convert to 8kHz PCM and then μ-law
+                        seg = AudioSegment.from_file(io.BytesIO(audio_mp3), format="mp3")
+                        seg = seg.set_frame_rate(8000).set_channels(1).set_sample_width(2)
+                        pcm = seg.raw_data
+                        audio_data = audioop.lin2ulaw(pcm, 2)
+                    except Exception as e:
+                        app.logger.error(f"ElevenLabs greeting MP3 fallback error: {e}")
+                        audio_data = b''
+                # Stream greeting audio to caller via Twilio WS
+                if audio_data:
+                    chunk_size = 160
+                    outbound_chunk_count = 0  # reset chunk counter for new sequence of audio
+                    for i in range(0, len(audio_data), chunk_size):
+                        chunk = audio_data[i:i+chunk_size]
+                        if len(chunk) < chunk_size:
+                            chunk = chunk.ljust(chunk_size, b'\xFF')
+                        outbound_chunk_count += 1
+                        sequence_number += 1
+                        payload = base64.b64encode(chunk).decode('ascii')
+                        outbound_msg = {
+                            "event": "media",
+                            "streamSid": stream_sid,
+                            "sequenceNumber": str(sequence_number),
+                            "media": {
+                                "track": "outbound",
+                                "chunk": str(outbound_chunk_count),
+                                "timestamp": str(int((outbound_chunk_count - 1) * 20)),
+                                "payload": payload
+                            }
+                        }
+                        try:
+                            await websocket.send_text(json.dumps(outbound_msg))
+                        except Exception as e:
+                            app.logger.error(f"Error sending greeting chunk: {e}")
+                else:
+                    app.logger.error("Failed to generate audio for greeting; no audio sent.")
+            elif event == "media":
+                # Inbound audio from Twilio (caller speaking) – forward to Deepgram for transcription
+                sequence_number = int(data.get("sequenceNumber", sequence_number))
+                payload = data['media']['payload']
+                audio_chunk = base64.b64decode(payload)  # this is 20ms of μ-law audio
+                # If using Deepgram, send the raw audio (after μ-law to PCM conversion if needed)
+                try:
+                    # Example: if Deepgram expects linear PCM, convert:
+                    linear_chunk = audioop.ulaw2lin(audio_chunk, 2)
+                    # Send to Deepgram's socket
+                    if dg_socket:
+                        dg_socket.send(linear_chunk)
+                except Exception as e:
+                    app.logger.error(f"Deepgram send error: {e}")
+                # (If not using Deepgram SDK, alternative STT handling would go here)
+            elif event == "closed" or event == "stop":
+                app.logger.info("Media stream closed by Twilio")
+                break
+    except WebSocketDisconnect:
+        app.logger.info("WebSocket disconnected")
+    finally:
+        # Cleanup: close Deepgram socket if open
+        try:
+            if dg_socket:
+                await dg_socket.close()
+        except Exception as e:
+            app.logger.error(f"Error closing Deepgram socket: {e}")
