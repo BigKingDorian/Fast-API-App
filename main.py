@@ -90,8 +90,6 @@ async def twilio_voice_webhook(_: Request):
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-    vr.say("Hello, this is Lotus. I'm listening.")
-    vr.pause(length=60)
     return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
