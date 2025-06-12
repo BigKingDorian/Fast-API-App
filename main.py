@@ -19,7 +19,6 @@ DEEPGRAM_API_KEY = os.getenv('DEEPGRAM_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')  # Voice ID for ElevenLabs TTS
-XI_MODEL_ID = os.getenv('XI_MODEL_ID')  # (Optional) ElevenLabs model ID for TTS
 SYSTEM_MESSAGE = os.getenv('SYSTEM_MESSAGE', "You are a helpful AI assistant.")  # AI persona
 
 # Ensure essential keys are present
