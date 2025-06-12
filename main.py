@@ -2,8 +2,10 @@ import os
 import json
 import base64
 import asyncio
+import requests  # ✅ Added for ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 
 # ✅ Load .env before any getenv calls
@@ -18,11 +20,14 @@ from openai import OpenAI
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")  # ✅ Also needed
 
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY in environment")
+if not ELEVENLABS_API_KEY:
+    raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
 # ✅ Create the OpenAI client after loading the env
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -45,19 +50,89 @@ async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
     print(f"🤖 GPT: {response}")
 
+    # ✅ Send GPT response to ElevenLabs
+    audio_response = requests.post(
+        "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",  # ← Replace with your voice ID
+        headers={
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": response,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+    )
+
+    audio_bytes = audio_response.content
+    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+
+    # ✅ Save audio to static path for Twilio
+    os.makedirs("static/audio", exist_ok=True)
+    with open("static/audio/response.mp3", "wb") as f:
+        f.write(audio_bytes)
+
+# ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(_: Request):
+    # Step 1: Get GPT response
+    gpt_text = await get_gpt_response("Hello, what can I help you with?")
+    print(f"🤖 GPT: {gpt_text}")
+
+    # Step 2: Send GPT response to ElevenLabs
+    elevenlabs_response = requests.post(
+        "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",  # ← Replace this
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+    )
+
+    # Step 3: Save audio to file
+    audio_bytes = elevenlabs_response.content
+    file_path = "static/audio/response.mp3"
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+    print(f"💾 Saved audio to {file_path}")
+
+    # Step 4 & 5: Return TwiML with <Play> tag
     vr = VoiceResponse()
+
+    # Stream Twilio audio to Deepgram
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
+
+    # Intro speech
     vr.say("Hello, this is Lotus. I'm listening.")
+    vr.pause(length=3)
+
+    # ✅ Play saved MP3 file from server
+    vr.play("https://silentsound1030.fly.dev/static/audio/response.mp3")
+
+    # Buffer time
     vr.pause(length=60)
+
     return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
@@ -65,7 +140,7 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-    loop = asyncio.get_running_loop()  # ✅ capture main thread loop
+    loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
@@ -94,7 +169,6 @@ async def media_stream(ws: WebSocket):
 
                 if hasattr(result, "to_dict"):
                     payload = result.to_dict()
-                    import json
                     print(json.dumps(payload, indent=2))
 
                     try:
@@ -102,10 +176,37 @@ async def media_stream(ws: WebSocket):
                         if sentence:
                             print(f"📝 {sentence}")
                             try:
-                                loop.run_in_executor(
-                                    None,
-                                    lambda: asyncio.run(print_gpt_response(sentence))
-                                )
+                                async def gpt_and_audio_pipeline(text):
+                                    response = await get_gpt_response(text)
+                                    print(f"🤖 GPT: {response}")
+
+                                    try:
+                                        import requests
+                                        audio_response = requests.post(
+                                            "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",
+                                            headers={
+                                                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                                                "Content-Type": "application/json"
+                                            },
+                                            json={
+                                                "text": response,
+                                                "model_id": "eleven_multilingual_v2",
+                                                "voice_settings": {
+                                                    "stability": 0.5,
+                                                    "similarity_boost": 0.75
+                                                }
+                                            }
+                                        )
+                                        audio_bytes = audio_response.content
+                                        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+
+                                        with open("static/audio/response.mp3", "wb") as f:
+                                            f.write(audio_bytes)
+                                            print("✅ Audio saved to static/audio/response.mp3")
+                                    except Exception as audio_e:
+                                        print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+
+                                loop.create_task(gpt_and_audio_pipeline(sentence))
                             except Exception as gpt_e:
                                 print(f"⚠️ GPT handler error: {gpt_e}")
                     except Exception as inner_e:
@@ -179,4 +280,3 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
