@@ -1,140 +1,182 @@
-import os, io, json, base64, logging
-from fastapi import FastAPI, WebSocket, Request
-from fastapi.responses import HTMLResponse
-from fastapi.websockets import WebSocketDisconnect
-from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
-from dotenv import load_dotenv
-import requests
-import openai
+import os
+import json
+import base64
+import asyncio
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import Response
+from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 
+# ✅ Load .env before any getenv calls
+from dotenv import load_dotenv
 load_dotenv()
 
-# Set up logger
-logger = logging.getLogger("uvicorn.error")
+# ✅ Deepgram setup
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
-# Load API keys
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
-ELEVENLABS_VOICE_ID = os.getenv('ELEVENLABS_VOICE_ID')
-SYSTEM_MESSAGE = os.getenv('SYSTEM_MESSAGE', "You are a helpful AI assistant.")
+# ✅ OpenAI setup
+from openai import OpenAI
 
-if not OPENAI_API_KEY or not ELEVENLABS_API_KEY or not ELEVENLABS_VOICE_ID:
-    raise ValueError("Missing required API keys in environment.")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-openai.api_key = OPENAI_API_KEY
+if not DEEPGRAM_API_KEY:
+    raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
+if not OPENAI_API_KEY:
+    raise RuntimeError("Missing OPENAI_API_KEY in environment")
+
+# ✅ Create the OpenAI client after loading the env
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# ✅ GPT handler function
+async def get_gpt_response(user_text: str) -> str:
+    try:
+        response = client.responses.create(
+            model="gpt-4o",
+            instructions="You are a helpful assistant who responds clearly and concisely.",
+            input=user_text
+        )
+        return response.output_text
+    except Exception as e:
+        print(f"⚠️ GPT Error: {e}")
+        return "[GPT failed to respond]"
+
+# ✅ Helper to run GPT in executor from a thread
+async def print_gpt_response(sentence: str):
+    response = await get_gpt_response(sentence)
+    print(f"🤖 GPT: {response}")
+
 app = FastAPI()
 
 @app.post("/")
-async def incoming_call(request: Request):
-    """Returns TwiML that starts the Twilio media stream."""
-    host = request.url.hostname
-    response = VoiceResponse()
-    connect = Connect()
-    connect.stream(url=f"wss://{host}/media-stream")
-    response.append(connect)
-    return HTMLResponse(str(response), status_code=200)
+async def twilio_voice_webhook(_: Request):
+    vr = VoiceResponse()
+    start = Start()
+    start.stream(
+        url="wss://silent-sound-1030.fly.dev/media",
+        content_type="audio/x-mulaw;rate=8000"
+    )
+    vr.append(start)
+    vr.say("Hello, this is Lotus. I'm listening.")
+    vr.pause(length=60)
+    return Response(content=str(vr), media_type="application/xml")
 
-@app.websocket("/media-stream")
-async def media_stream(websocket: WebSocket):
-    await websocket.accept()
+@app.websocket("/media")
+async def media_stream(ws: WebSocket):
+    await ws.accept()
+    print("★ Twilio WebSocket connected")
 
-    conversation = [{"role": "system", "content": SYSTEM_MESSAGE}]
-    stream_sid = None
-    sequence_number = 0
-    outbound_chunk_count = 0
-
-    async def stream_audio_to_twilio(text: str):
-        nonlocal sequence_number, outbound_chunk_count
-        try:
-            res = requests.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream?output_format=ulaw_8000&optimize_streaming_latency=3",
-                headers={
-                    "xi-api-key": ELEVENLABS_API_KEY,
-                    "Content-Type": "application/json",
-                    "Accept": "audio/wav"
-                },
-                json={"text": text}
-            )
-            if res.status_code != 200:
-                logger.error(f"ElevenLabs error {res.status_code}: {res.text}")
-                return
-
-            audio_data = res.content
-            if audio_data[:4] == b'RIFF':
-                audio_data = audio_data[44:]
-
-            chunk_size = 160  # 20ms
-            for i in range(0, len(audio_data), chunk_size):
-                chunk = audio_data[i:i+chunk_size].ljust(chunk_size, b'\xFF')
-                payload = base64.b64encode(chunk).decode('ascii')
-                outbound_chunk_count += 1
-                sequence_number += 1
-
-                msg = {
-                    "event": "media",
-                    "streamSid": stream_sid,
-                    "sequenceNumber": str(sequence_number),
-                    "media": {
-                        "track": "outbound",
-                        "chunk": str(outbound_chunk_count),
-                        "timestamp": str((outbound_chunk_count - 1) * 20),
-                        "payload": payload
-                    }
-                }
-                await websocket.send_text(json.dumps(msg))
-
-        except Exception as e:
-            logger.error(f"Error sending audio to Twilio: {e}")
+    loop = asyncio.get_running_loop()  # ✅ capture main thread loop
+    deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+    dg_connection = None
 
     try:
-        while True:
-            message = await websocket.receive_text()
-            data = json.loads(message)
-            event = data.get("event")
+        print("⚙️ Connecting to Deepgram live transcription...")
 
-            if event == "start":
-                stream_sid = data['start']['streamSid']
-                sequence_number = int(data.get("sequenceNumber", 0))
-                logger.info(f"Media stream started (SID: {stream_sid})")
+        try:
+            live_client = deepgram.listen.live
+            dg_connection = await asyncio.to_thread(live_client.v, "1")
+        except Exception as e:
+            print(f"⛔ Failed to create Deepgram connection: {e}")
+            await ws.close()
+            return
 
-                # Trigger greeting
-                conversation.append({"role": "user", "content": "Hello"})
+        def on_transcript(*args, **kwargs):
+            try:
+                print("📥 RAW transcript event:")
+                result = kwargs.get("result") or (args[0] if args else None)
+                metadata = kwargs.get("metadata")
+
+                if result is None:
+                    print("⚠️ No result received.")
+                    return
+
+                print("📂 Type of result:", type(result))
+
+                if hasattr(result, "to_dict"):
+                    payload = result.to_dict()
+                    import json
+                    print(json.dumps(payload, indent=2))
+
+                    try:
+                        sentence = payload["channel"]["alternatives"][0]["transcript"]
+                        if sentence:
+                            print(f"📝 {sentence}")
+                            try:
+                                loop.run_in_executor(
+                                    None,
+                                    lambda: asyncio.run(print_gpt_response(sentence))
+                                )
+                            except Exception as gpt_e:
+                                print(f"⚠️ GPT handler error: {gpt_e}")
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                else:
+                    print("🔍 Available attributes:", dir(result))
+                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                    print(result.__dict__)
+            except Exception as e:
+                print(f"⚠️ Error handling transcript: {e}")
+
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+
+        options = LiveOptions(
+            model="nova-3",
+            language="en-US",
+            encoding="mulaw",
+            sample_rate=8000,
+            punctuate=True,
+        )
+        print("✏️ LiveOptions being sent:", options.__dict__)
+        dg_connection.start(options)
+        print("✅ Deepgram connection started")
+
+        async def sender():
+            while True:
                 try:
-                    completion = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
-                        messages=conversation
-                    )
-                    greeting = completion.choices[0].message.content.strip()
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    print("✖️ Twilio WebSocket disconnected")
+                    break
                 except Exception as e:
-                    logger.error(f"OpenAI greeting error: {e}")
-                    greeting = "Hello, how can I assist you today?"
-                conversation.append({"role": "assistant", "content": greeting})
-                await stream_audio_to_twilio(greeting)
-
-            elif event == "media":
-                sequence_number = int(data.get("sequenceNumber", sequence_number))
-                payload = base64.b64decode(data['media']['payload'])
-
-                # Convert audio to text (you would send this to Deepgram here)
-                # Simulating Deepgram with dummy logic
-                # Replace this with real transcription pipeline
-                dummy_transcript = "pretend this was transcribed text"
-                conversation.append({"role": "user", "content": dummy_transcript})
+                    print(f"⚠️ Unexpected error receiving message: {e}")
+                    break
 
                 try:
-                    completion = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
-                        messages=conversation
-                    )
-                    reply = completion.choices[0].message.content.strip()
-                    conversation.append({"role": "assistant", "content": reply})
-                    await stream_audio_to_twilio(reply)
-                except Exception as e:
-                    logger.error(f"OpenAI response error: {e}")
+                    msg = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decode error: {e}")
+                    continue
 
-            elif event in ["stop", "closed"]:
-                logger.info("Call ended by Twilio.")
-                break
+                event = msg.get("event")
 
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
+                if event == "start":
+                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+
+                elif event == "media":
+                    try:
+                        payload = base64.b64decode(msg["media"]["payload"])
+                        dg_connection.send(payload)
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
+                    except Exception as e:
+                        print(f"⚠️ Error sending to Deepgram: {e}")
+
+                elif event == "stop":
+                    print("⏹ Stream stopped by Twilio")
+                    break
+
+        await sender()
+
+    except Exception as e:
+        print(f"⛔ Deepgram error: {e}")
+    finally:
+        if dg_connection:
+            try:
+                dg_connection.finish()
+            except Exception as e:
+                print(f"⚠️ Error closing Deepgram connection: {e}")
+        try:
+            await ws.close()
+        except Exception as e:
+            print(f"⚠️ Error closing WebSocket: {e}")
+        print("✅ Connection closed")
+
