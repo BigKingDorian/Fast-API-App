@@ -60,7 +60,7 @@ async def media_stream(websocket: WebSocket):
         #     dg_socket.register_handler(..., handle_transcript)
         pass
     except Exception as e:
-        app.logger.error(f"Deepgram connection error: {e}")
+        logger.error(f"Deepgram connection error: {e}")
 
     # Conversation state for OpenAI
     conversation = [ {"role": "system", "content": SYSTEM_MESSAGE} ]
@@ -77,7 +77,7 @@ async def media_stream(websocket: WebSocket):
         user_text = transcript.get("text", "").strip()
         if not user_text:
             return
-        app.logger.info(f"Caller said: {user_text}")
+        logger.info(f"Caller said: {user_text}")
         # Append user message to conversation history
         conversation.append({"role": "user", "content": user_text})
         # Get response from OpenAI
@@ -88,12 +88,12 @@ async def media_stream(websocket: WebSocket):
             )
             assistant_text = ai_resp.choices[0].message.content.strip()
         except Exception as e:
-            app.logger.error(f"OpenAI API error: {e}")
+            logger.error(f"OpenAI API error: {e}")
             # Fallback to a default response on error
             assistant_text = "I'm sorry, I encountered an error."
         # Append assistant response to conversation history
         conversation.append({"role": "assistant", "content": assistant_text})
-        app.logger.info(f"AI response: {assistant_text}")
+        logger.info(f"AI response: {assistant_text}")
         # Convert assistant_text to speech using ElevenLabs (direct μ-law if possible)
         audio_data_ulaw = b''
         try:
@@ -113,9 +113,9 @@ async def media_stream(websocket: WebSocket):
                 if audio_data_ulaw[:4] == b'RIFF':
                     audio_data_ulaw = audio_data_ulaw[44:]
             else:
-                app.logger.error(f"ElevenLabs TTS HTTP {tts_res.status_code}: {tts_res.text}")
+                logger.error(f"ElevenLabs TTS HTTP {tts_res.status_code}: {tts_res.text}")
         except Exception as e:
-            app.logger.error(f"ElevenLabs TTS (ulaw_8000) error: {e}")
+            logger.error(f"ElevenLabs TTS (ulaw_8000) error: {e}")
         # Fallback to MP3 conversion if direct ulaw failed
         if not audio_data_ulaw:
             try:
@@ -136,7 +136,7 @@ async def media_stream(websocket: WebSocket):
                 pcm_data = audio_segment.raw_data  # 16-bit PCM audio
                 audio_data_ulaw = audioop.lin2ulaw(pcm_data, 2)
             except Exception as e:
-                app.logger.error(f"ElevenLabs MP3 fallback error: {e}")
+                logger.error(f"ElevenLabs MP3 fallback error: {e}")
                 audio_data_ulaw = b''
         # Stream the audio data back to Twilio in chunks
         if audio_data_ulaw:
@@ -163,9 +163,9 @@ async def media_stream(websocket: WebSocket):
                 try:
                     await websocket.send_text(json.dumps(outbound_msg))
                 except Exception as e:
-                    app.logger.error(f"Error sending audio chunk: {e}")
+                    logger.error(f"Error sending audio chunk: {e}")
         else:
-            app.logger.error("No audio data to stream back to Twilio (assistant_text was empty or TTS failed).")
+            logger.error("No audio data to stream back to Twilio (assistant_text was empty or TTS failed).")
 
     # Main loop: receive media stream messages from Twilio and feed to Deepgram
     try:
@@ -189,11 +189,11 @@ async def media_stream(websocket: WebSocket):
                     )
                     greet_text = ai_greet.choices[0].message.content.strip()
                 except Exception as e:
-                    app.logger.error(f"OpenAI greeting error: {e}")
+                    logger.error(f"OpenAI greeting error: {e}")
                     greet_text = "Hello! How can I assist you today?"
                 # Add the assistant's greeting to conversation history
                 conversation.append({"role": "assistant", "content": greet_text})
-                app.logger.info(f"AI initial greeting: {greet_text}")
+                logger.info(f"AI initial greeting: {greet_text}")
                 # Synthesize greeting to speech via ElevenLabs and stream it
                 audio_data = b''
                 try:
@@ -212,9 +212,9 @@ async def media_stream(websocket: WebSocket):
                         if audio_data[:4] == b'RIFF':  # strip WAV header if present
                             audio_data = audio_data[44:]
                     else:
-                        app.logger.error(f"ElevenLabs greeting TTS HTTP {res.status_code}: {res.text}")
+                        logger.error(f"ElevenLabs greeting TTS HTTP {res.status_code}: {res.text}")
                 except Exception as e:
-                    app.logger.error(f"ElevenLabs greeting TTS error: {e}")
+                    logger.error(f"ElevenLabs greeting TTS error: {e}")
                 if not audio_data:
                     # Fallback to MP3 if direct ulaw stream failed
                     try:
@@ -231,7 +231,7 @@ async def media_stream(websocket: WebSocket):
                         pcm = seg.raw_data
                         audio_data = audioop.lin2ulaw(pcm, 2)
                     except Exception as e:
-                        app.logger.error(f"ElevenLabs greeting MP3 fallback error: {e}")
+                        logger.error(f"ElevenLabs greeting MP3 fallback error: {e}")
                         audio_data = b''
                 # Stream greeting audio to caller via Twilio WS
                 if audio_data:
@@ -258,9 +258,9 @@ async def media_stream(websocket: WebSocket):
                         try:
                             await websocket.send_text(json.dumps(outbound_msg))
                         except Exception as e:
-                            app.logger.error(f"Error sending greeting chunk: {e}")
+                            logger.error(f"Error sending greeting chunk: {e}")
                 else:
-                    app.logger.error("Failed to generate audio for greeting; no audio sent.")
+                    logger.error("Failed to generate audio for greeting; no audio sent.")
             elif event == "media":
                 # Inbound audio from Twilio (caller speaking) – forward to Deepgram for transcription
                 sequence_number = int(data.get("sequenceNumber", sequence_number))
@@ -274,17 +274,17 @@ async def media_stream(websocket: WebSocket):
                     if dg_socket:
                         dg_socket.send(linear_chunk)
                 except Exception as e:
-                    app.logger.error(f"Deepgram send error: {e}")
+                    logger.error(f"Deepgram send error: {e}")
                 # (If not using Deepgram SDK, alternative STT handling would go here)
             elif event == "closed" or event == "stop":
-                app.logger.info("Media stream closed by Twilio")
+                logger.info("Media stream closed by Twilio")
                 break
     except WebSocketDisconnect:
-        app.logger.info("WebSocket disconnected")
+        logger.info("WebSocket disconnected")
     finally:
         # Cleanup: close Deepgram socket if open
         try:
             if dg_socket:
                 await dg_socket.close()
         except Exception as e:
-            app.logger.error(f"Error closing Deepgram socket: {e}")
+            logger.error(f"Error closing Deepgram socket: {e}")
