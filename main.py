@@ -1,4 +1,5 @@
 import os, io, json, base64
+import logging
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 from fastapi.websockets import WebSocketDisconnect
@@ -8,6 +9,8 @@ import requests
 import audioop
 from pydub import AudioSegment
 # (Assuming Deepgram SDK or websocket is imported and configured elsewhere)
+
+logger = logging.getLogger("uvicorn.error")
 
 load_dotenv()
 
@@ -174,8 +177,9 @@ async def media_stream(websocket: WebSocket):
                 # Connection started – store Stream SID and initial sequence
                 stream_sid = data['start']['streamSid']
                 sequence_number = int(data.get("sequenceNumber", 0))
-                app.logger.info(f"Media stream started (Stream SID: {stream_sid})")
+                logger.info(f"Media stream started (Stream SID: {stream_sid})")
                 # Generate initial greeting from OpenAI
+
                 try:
                     # Prompt the assistant to produce a greeting
                     conversation.append({"role": "user", "content": "Hello"})
