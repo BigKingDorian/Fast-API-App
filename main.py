@@ -79,9 +79,6 @@ async def print_gpt_response(sentence: str):
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 @app.post("/")
 async def twilio_voice_webhook(_: Request):
     # Step 1: Get GPT response
