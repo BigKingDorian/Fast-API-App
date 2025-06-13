@@ -110,24 +110,24 @@ async def twilio_voice_webhook(_: Request):
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
 
-# Step 4 & 5: Return TwiML with <Play> tag
-vr = VoiceResponse()
+   # Step 4 & 5: Return TwiML with <Play> tag
+    vr = VoiceResponse()
 
-# Start streaming Twilio audio to Deepgram
-start = Start()
-start.stream(
-    url="wss://silent-sound-1030.fly.dev/media",
-    content_type="audio/x-mulaw;rate=8000"
-)
-vr.append(start)
+    # Start streaming Twilio audio to Deepgram
+    start = Start()
+    start.stream(
+        url="wss://silent-sound-1030.fly.dev/media",
+        content_type="audio/x-mulaw;rate=8000"
+    )
+    vr.append(start)
 
-# ✅ Play saved GPT response audio
-vr.play("https://silentsound1030.fly.dev/static/audio/response.mp3")
+    # ✅ Play saved GPT response audio
+    vr.play("https://silentsound1030.fly.dev/static/audio/response.mp3")
 
-# Optional short pause to keep call open (adjust if needed)
-vr.pause(length=3)
+    # Optional short pause to keep call open
+    vr.pause(length=3)
 
-return Response(content=str(vr), media_type="application/xml")
+    return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
