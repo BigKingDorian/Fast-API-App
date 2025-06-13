@@ -82,7 +82,7 @@ async def print_gpt_response(sentence: str):
 
     # ✅ Save audio to static path for Twilio
     os.makedirs("static/audio", exist_ok=True)
-    with open("static/audio/response.mp3", "wb") as f:
+    with open("static/audio/response.wav", "wb") as f:
         f.write(audio_bytes)
 
 # ✅ Create FastAPI app and mount static audio folder
@@ -114,7 +114,7 @@ async def twilio_voice_webhook(_: Request):
 
     # Step 3: Save audio to file
     audio_bytes = elevenlabs_response.content
-    file_path = "static/audio/response.mp3"
+    file_path = "static/audio/response.wav"
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
@@ -135,7 +135,7 @@ async def twilio_voice_webhook(_: Request):
     vr.pause(length=3)
 
     # ✅ Play saved MP3 file from server
-    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.mp3")
+    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav")
 
     # Buffer time
     vr.pause(length=60)
@@ -207,7 +207,7 @@ async def media_stream(ws: WebSocket):
                                         audio_bytes = audio_response.content
                                         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
-                                        with open("static/audio/response.mp3", "wb") as f:
+                                        with open("static/audio/response.wav", "wb") as f:
                                             f.write(audio_bytes)
                                             print("✅ Audio saved to static/audio/response.mp3")
                                     except Exception as audio_e:
