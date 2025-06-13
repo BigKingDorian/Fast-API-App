@@ -197,7 +197,7 @@ async def media_stream(ws: WebSocket):
                                     try:
                                         import requests
                                         audio_response = requests.post(
-                                            "https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
                                             headers={
                                                 "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
                                                 "Content-Type": "application/json"
