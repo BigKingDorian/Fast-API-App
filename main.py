@@ -52,7 +52,7 @@ async def print_gpt_response(sentence: str):
 
     # ✅ Send GPT response to ElevenLabs
     audio_response = requests.post(
-        "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",  # ← Replace with your voice ID
+        "https://api.elevenlabs.io/v1/text-to-speech/19STyYD15bswVz51nqLf",  # ← Replace with your voice ID
         headers={
             "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json"
@@ -87,7 +87,7 @@ async def twilio_voice_webhook(_: Request):
 
     # Step 2: Send GPT response to ElevenLabs
     elevenlabs_response = requests.post(
-        "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",  # ← Replace this
+        "https://api.elevenlabs.io/v1/text-to-speech/19STyYD15bswVz51nqLf",  # ← Replace this
         headers={
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
             "Content-Type": "application/json"
@@ -180,7 +180,7 @@ async def media_stream(ws: WebSocket):
                                     try:
                                         import requests
                                         audio_response = requests.post(
-                                            "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID",
+                                            "https://api.elevenlabs.io/v1/text-to-speech/19STyYD15bswVz51nqLf",
                                             headers={
                                                 "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
                                                 "Content-Type": "application/json"
