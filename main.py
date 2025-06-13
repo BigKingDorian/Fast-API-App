@@ -117,8 +117,14 @@ async def twilio_voice_webhook(_: Request):
     )
 
     audio_bytes = elevenlabs_response.content
+
+    ts = int(time.time())
+    filename = f"response_{ts}.wav"
+    file_path = f"static/audio/{filename}"
+
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
+
     print(f"💾 Saved audio to {file_path}")
 
     await asyncio.sleep(1)  # Let file be available
@@ -126,10 +132,9 @@ async def twilio_voice_webhook(_: Request):
     # Return TwiML
     vr = VoiceResponse()
 
-    # ✅ GPT Speaks first
-    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/response.wav?ts={int(time.time())}")
+    # ✅ GPT Speaks first with unique filename
+    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{filename}")
 
-    # ✅ Optional pause before mic
     vr.pause(length=1)
 
     # ✅ Start Deepgram stream
