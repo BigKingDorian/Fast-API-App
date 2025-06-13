@@ -97,8 +97,8 @@ async def twilio_voice_webhook(_: Request):
             "text": gpt_text,
             "model_id": "eleven_multilingual_v2",
             "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
+            "stability": 0.5,
+            "similarity_boost": 0.75
             }
         }
     )
@@ -110,7 +110,7 @@ async def twilio_voice_webhook(_: Request):
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
 
-   # Step 4 & 5: Return TwiML with <Play> tag
+    # Step 4 & 5: Return TwiML with <Play> tag
     vr = VoiceResponse()
 
     # Start streaming Twilio audio to Deepgram
