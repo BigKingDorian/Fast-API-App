@@ -126,7 +126,7 @@ async def twilio_voice_webhook(_: Request):
     vr.pause(length=3)
 
     # ✅ Play saved MP3 file from server
-    vr.play("https://silentsound1030.fly.dev/static/audio/response.mp3")
+    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.mp3")
 
     # Buffer time
     vr.pause(length=60)
