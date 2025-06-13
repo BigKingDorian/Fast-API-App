@@ -132,7 +132,7 @@ async def twilio_voice_webhook(_: Request):
 
     # Intro speech
     vr.say("Hello, this is Lotus. I'm listening.")
-    vr.pause(length=3)
+    vr.pause(length=30)
 
     # ✅ Play saved MP3 file from server
     vr.play("https://silent-sound-1030.fly.dev/static/audio/response.mp3")
