@@ -126,7 +126,6 @@ async def twilio_voice_webhook(_: Request):
 
     # Optional short pause to keep call open
     vr.pause(length=3)
-
     return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
