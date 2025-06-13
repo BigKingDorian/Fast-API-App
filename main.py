@@ -53,7 +53,7 @@ async def print_gpt_response(sentence: str):
 
     # ✅ Send GPT response to ElevenLabs
     audio_response = requests.post(
-        "https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ← Replace with your voice ID
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ← Replace with your voice ID
         headers={
             "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json"
