@@ -89,13 +89,17 @@ async def print_gpt_response(sentence: str):
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ✅ Create FastAPI app and mount static audio folder
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.post("/")
 async def twilio_voice_webhook(_: Request):
     gpt_text = await get_gpt_response("Hello, what can I help you with?")
     print(f"🤖 GPT: {gpt_text}")
 
     elevenlabs_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ✅ f-string fix
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
         headers={
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
             "Content-Type": "application/json"
@@ -112,20 +116,6 @@ async def twilio_voice_webhook(_: Request):
 
     file_path = "static/audio/response.wav"
     audio_bytes = elevenlabs_response.content
-    print(f"💾 Saved audio to {file_path}")
-    with open(file_path, "wb") as f:
-        f.write(audio_bytes)
-
-    vr = VoiceResponse()
-
-    # ✅ 1. GPT Speaks first
-    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav")
-
-    # ✅ 2. Optional pause before opening mic
-    vr.pause(length=1)
-
-   # Step 3: Save audio
-    file_path = "static/audio/response.wav"
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
@@ -134,17 +124,20 @@ async def twilio_voice_webhook(_: Request):
 
     # Return TwiML
     vr = VoiceResponse()
+
+    # ✅ GPT Speaks first
+    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/response.wav?ts={int(time.time())}")
+
+    # ✅ Optional pause before mic
+    vr.pause(length=1)
+
+    # ✅ Start Deepgram stream
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-
-    vr.pause(length=2)
-
-    # ✅ Add dynamic timestamp
-    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/response.wav?ts={int(time.time())}")
 
     vr.pause(length=60)
 
