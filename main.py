@@ -111,11 +111,11 @@ async def twilio_voice_webhook(_: Request):
         }
     )
 
+    file_path = "static/audio/response.wav"
     audio_bytes = elevenlabs_response.content
-    f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+    print(f"💾 Saved audio to {file_path}")
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
-    print(f"💾 Saved audio to {file_path}")
 
     vr = VoiceResponse()
 
