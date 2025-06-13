@@ -209,7 +209,7 @@ async def media_stream(ws: WebSocket):
 
                                         with open("static/audio/response.wav", "wb") as f:
                                             f.write(audio_bytes)
-                                            print("✅ Audio saved to static/audio/response.mp3")
+                                            print("✅ Audio saved to static/audio/response.wav")
                                     except Exception as audio_e:
                                         print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
