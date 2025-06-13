@@ -105,7 +105,7 @@ async def twilio_voice_webhook(_: Request):
 
     # Step 3: Save audio to file
     audio_bytes = elevenlabs_response.content
-    file_path = "static/audio/response.mp3"
+    file_path = "static/audio/.keep"
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
