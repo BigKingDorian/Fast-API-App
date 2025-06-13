@@ -120,7 +120,7 @@ async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
 
     # ✅ 1. GPT Speaks first
-    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav?ts=123456")
+    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav")
 
     # ✅ 2. Optional pause before opening mic
     vr.pause(length=1)
