@@ -84,6 +84,9 @@ async def print_gpt_response(sentence: str):
     os.makedirs("static/audio", exist_ok=True)
     with open("static/audio/response.wav", "wb") as f:
         f.write(audio_bytes)
+        print("✅ Audio file saved at:", file_path)
+
+    await asyncio.sleep(1)  # Let file save completely and be served
 
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
