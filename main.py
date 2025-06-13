@@ -67,13 +67,11 @@ async def print_gpt_response(sentence: str):
             }
         }
     )
-    
-   # ✅ Check for HTTP issues
-    print(f"📥 ElevenLabs response code: {elevenlabs_response.status_code}")
-    if elevenlabs_response.status_code != 200:
-        print(f"❌ Error content from ElevenLabs: {elevenlabs_response.text}")
-    else:
-        print("✅ ElevenLabs audio response received")
+
+    print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
 
     # Step 3: Save audio to file
     audio_bytes = elevenlabs_response.content
