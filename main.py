@@ -10,7 +10,7 @@ from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 
 # ✅ Load .env before any getenv calls
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv("/root/Fast-API-App/.env")
 
 # ✅ Deepgram setup
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
