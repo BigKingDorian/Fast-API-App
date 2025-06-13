@@ -124,7 +124,16 @@ async def twilio_voice_webhook(_: Request):
     # ✅ 2. Optional pause before opening mic
     vr.pause(length=1)
 
-    # ✅ 3. Now Twilio listens
+   # Step 3: Save audio
+    file_path = "static/audio/response.wav"
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+    print(f"💾 Saved audio to {file_path}")
+
+    await asyncio.sleep(1)  # Let file be available
+
+    # Return TwiML
+    vr = VoiceResponse()
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
@@ -132,7 +141,11 @@ async def twilio_voice_webhook(_: Request):
     )
     vr.append(start)
 
-    # ✅ 4. Give buffer time for user to speak
+    vr.pause(length=2)
+
+    # ✅ Add dynamic timestamp
+    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/response.wav?ts={int(time.time())}")
+
     vr.pause(length=60)
 
     return Response(content=str(vr), media_type="application/xml")
