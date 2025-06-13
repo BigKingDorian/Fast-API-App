@@ -53,7 +53,7 @@ async def print_gpt_response(sentence: str):
 
     # ✅ Send GPT response to ElevenLabs
     audio_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ← Replace with your voice ID
+        "https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ← Replace with your voice ID
         headers={
             "xi-api-key": ELEVENLABS_API_KEY,
             "Content-Type": "application/json"
@@ -97,8 +97,8 @@ async def twilio_voice_webhook(_: Request):
             "text": gpt_text,
             "model_id": "eleven_multilingual_v2",
             "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75
+                "stability": 0.5,
+                "similarity_boost": 0.75
             }
         }
     )
@@ -113,7 +113,7 @@ async def twilio_voice_webhook(_: Request):
     # Step 4 & 5: Return TwiML with <Play> tag
     vr = VoiceResponse()
 
-    # Start streaming Twilio audio to Deepgram
+    # Stream Twilio audio to Deepgram
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
@@ -121,11 +121,16 @@ async def twilio_voice_webhook(_: Request):
     )
     vr.append(start)
 
-    # ✅ Play saved GPT response audio
+    # Intro speech
+    vr.say("Hello, this is Lotus. I'm listening.")
+    vr.pause(length=3)
+
+    # ✅ Play saved MP3 file from server
     vr.play("https://silentsound1030.fly.dev/static/audio/response.mp3")
 
-    # Optional short pause to keep call open
-    vr.pause(length=3)
+    # Buffer time
+    vr.pause(length=60)
+
     return Response(content=str(vr), media_type="application/xml")
 
 @app.websocket("/media")
