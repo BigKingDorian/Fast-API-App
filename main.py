@@ -91,13 +91,11 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(_: Request):
-    # Step 1: Get GPT response
     gpt_text = await get_gpt_response("Hello, what can I help you with?")
     print(f"🤖 GPT: {gpt_text}")
 
-    # Step 2: Send GPT response to ElevenLabs
     elevenlabs_response = requests.post(
-        "https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ← Replace this
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ✅ f-string fix
         headers={
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
             "Content-Type": "application/json"
@@ -112,17 +110,21 @@ async def twilio_voice_webhook(_: Request):
         }
     )
 
-    # Step 3: Save audio to file
     audio_bytes = elevenlabs_response.content
     file_path = "static/audio/response.wav"
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved audio to {file_path}")
 
-    # Step 4 & 5: Return TwiML with <Play> tag
     vr = VoiceResponse()
 
-    # Stream Twilio audio to Deepgram
+    # ✅ 1. GPT Speaks first
+    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav")
+
+    # ✅ 2. Optional pause before opening mic
+    vr.pause(length=1)
+
+    # ✅ 3. Now Twilio listens
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
@@ -130,14 +132,7 @@ async def twilio_voice_webhook(_: Request):
     )
     vr.append(start)
 
-    # Intro speech
-    vr.say("Hello, this is Lotus. I'm listening.")
-    vr.pause(length=30)
-
-    # ✅ Play saved MP3 file from server
-    vr.play("https://silent-sound-1030.fly.dev/static/audio/response.wav")
-
-    # Buffer time
+    # ✅ 4. Give buffer time for user to speak
     vr.pause(length=60)
 
     return Response(content=str(vr), media_type="application/xml")
