@@ -133,7 +133,7 @@ async def twilio_voice_webhook(_: Request):
     # ✅ Convert to 8kHz μ-law using ffmpeg
     converted_path = file_path.replace(".wav", "_ulaw.wav")
     subprocess.run([
-        "ffmpeg",
+        "/usr/bin/ffmpeg",
         "-y",
         "-i", file_path,
         "-ar", "8000",
