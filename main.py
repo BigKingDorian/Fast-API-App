@@ -3,6 +3,7 @@ import json
 import base64
 import asyncio
 import time
+import subprocess
 import requests  # ✅ Added for ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
@@ -129,13 +130,26 @@ async def twilio_voice_webhook(_: Request):
 
     print(f"💾 Saved audio to {file_path}")
 
+    # ✅ Convert to 8kHz μ-law using ffmpeg
+    converted_path = file_path.replace(".wav", "_ulaw.wav")
+    subprocess.run([
+        "ffmpeg",
+        "-y",
+        "-i", file_path,
+        "-ar", "8000",
+        "-f", "mulaw",
+        converted_path
+    ], check=True)
+    print(f"🎛️ Converted audio saved at: {converted_path}")
+
     await asyncio.sleep(1)  # Let file be available
 
     # Return TwiML
     vr = VoiceResponse()
 
     # ✅ GPT Speaks first with unique filename
-    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{filename}")
+    ulaw_filename = filename.replace(".wav", "_ulaw.wav")
+    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
 
     vr.pause(length=1)
 
