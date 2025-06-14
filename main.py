@@ -69,6 +69,8 @@ async def print_gpt_response(sentence: str):
         }
     )
 
+    print("🧪 ElevenLabs status:", audio_response.status_code)
+    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
@@ -76,6 +78,7 @@ async def print_gpt_response(sentence: str):
 
     # Step 3: Save audio to file
     audio_bytes = audio_response.content
+    file_path = "static/audio/response.wav"
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
 
     print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
@@ -87,10 +90,6 @@ async def print_gpt_response(sentence: str):
         print("✅ Audio file saved at:", file_path)
 
     await asyncio.sleep(1)  # Let file save completely and be served
-
-# ✅ Create FastAPI app and mount static audio folder
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
