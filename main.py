@@ -274,6 +274,7 @@ async def media_stream(ws: WebSocket):
 
                 try:
                     msg = json.loads(raw)
+                    print("📩 Incoming message:", msg.get("event"))  # <-- NEW: confirms event type is received
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
@@ -284,6 +285,7 @@ async def media_stream(ws: WebSocket):
                     print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
 
                 elif event == "media":
+                    print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
