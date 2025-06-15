@@ -62,7 +62,7 @@ async def print_gpt_response(sentence: str):
         },
         json={
             "text": response,
-            "model_id": "eleven_multilingual_v2",
+            "model_id": "eleven_flash_v2_5",
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75
@@ -111,7 +111,7 @@ async def twilio_voice_webhook(_: Request):
         },
         json={
             "text": gpt_text,
-            "model_id": "eleven_multilingual_v2",
+            "model_id": "eleven_flash_v2_5",
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75
@@ -220,7 +220,7 @@ async def media_stream(ws: WebSocket):
                                             },
                                             json={
                                                 "text": response,
-                                                "model_id": "eleven_multilingual_v2",
+                                                "model_id": "eleven_flash_v2_5",
                                                 "voice_settings": {
                                                     "stability": 0.5,
                                                     "similarity_boost": 0.75
