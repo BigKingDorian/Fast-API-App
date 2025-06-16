@@ -87,18 +87,12 @@ audio_bytes = audio_response.content
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
 
-    # 👇 Save file to disk
-    os.makedirs("static/audio", exist_ok=True)
-    with open(file_path, "wb") as f:
-        f.write(audio_bytes)
-        print("✅ Audio file saved at:", file_path)
-        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-
     # ✅ Save audio to static path for Twilio
     os.makedirs("static/audio", exist_ok=True)
     with open("static/audio/response.wav", "wb") as f:
         f.write(audio_bytes)
         print("✅ Audio file saved at:", file_path)
+        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
     await asyncio.sleep(1)  # Let file save completely and be served
 
@@ -107,11 +101,15 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
+@app.post("/")
 async def twilio_voice_webhook(_: Request):
     gpt_text = await get_gpt_response("Hello, what can I help you with?")
     print(f"🤖 GPT: {gpt_text}")
 
-    file_path = "static/audio/response.wav"  # ✅ Must come before any use of file_path
+    # ✅ Correct dynamic file path setup
+    ts = int(time.time())
+    filename = f"response_{ts}.wav"
+    file_path = f"static/audio/{filename}"
 
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
