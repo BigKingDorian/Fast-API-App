@@ -81,7 +81,7 @@ async def print_gpt_response(sentence: str):
 audio_bytes = audio_response.content
 
 # 👇 Make unique filename with timestamp
-    ts = int(time.time())
+ts = int(time.time())
     filename = f"response_{ts}.wav"
     file_path = f"static/audio/{filename}"
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
