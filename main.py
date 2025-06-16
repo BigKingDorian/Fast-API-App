@@ -93,7 +93,7 @@ async def print_gpt_response(sentence: str):
         f.write(audio_bytes)
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-        
+
     await asyncio.sleep(1)
 
 # ✅ Create FastAPI app and mount static audio folder
