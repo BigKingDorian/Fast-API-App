@@ -96,7 +96,6 @@ async def print_gpt_response(sentence: str):
 
     await asyncio.sleep(1)
 
-
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
