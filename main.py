@@ -77,11 +77,11 @@ async def print_gpt_response(sentence: str):
     print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
 
-# Step 3: Save audio to file
-audio_bytes = audio_response.content
+    # Step 3: Save audio to file
+    audio_bytes = audio_response.content
 
-# 👇 Make unique filename with timestamp
-ts = int(time.time())
+    # 👇 Make unique filename with timestamp
+    ts = int(time.time())
     filename = f"response_{ts}.wav"
     file_path = f"static/audio/{filename}"
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
