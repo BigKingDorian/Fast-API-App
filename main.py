@@ -101,7 +101,6 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
-@app.post("/")
 async def twilio_voice_webhook(_: Request):
     gpt_text = await get_gpt_response("Hello, what can I help you with?")
     print(f"🤖 GPT: {gpt_text}")
