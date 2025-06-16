@@ -90,9 +90,9 @@ async def print_gpt_response(sentence: str):
 
     os.makedirs("static/audio", exist_ok=True)
     with open(file_path, "wb") as f:  # ✅ use dynamic path
-    f.write(audio_bytes)
-    print("✅ Audio file saved at:", file_path)
-    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+        f.write(audio_bytes)
+        print("✅ Audio file saved at:", file_path)
+        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
     await asyncio.sleep(1)
 
