@@ -77,12 +77,22 @@ async def print_gpt_response(sentence: str):
     print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
 
-    # Step 3: Save audio to file
-    audio_bytes = audio_response.content
-    file_path = "static/audio/response.wav"
-    print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
+# Step 3: Save audio to file
+audio_bytes = audio_response.content
 
-    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+# 👇 Make unique filename with timestamp
+    ts = int(time.time())
+    filename = f"response_{ts}.wav"
+    file_path = f"static/audio/{filename}"
+    print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
+    print(f"💾 Saving audio to {file_path}")
+
+    # 👇 Save file to disk
+    os.makedirs("static/audio", exist_ok=True)
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+        print("✅ Audio file saved at:", file_path)
+        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
     # ✅ Save audio to static path for Twilio
     os.makedirs("static/audio", exist_ok=True)
@@ -137,9 +147,11 @@ async def twilio_voice_webhook(_: Request):
         "-y",
         "-i", file_path,
         "-ar", "8000",
+        "-ac", "1",
+        "-c:a", "pcm_mulaw",
         "-f", "mulaw",
-        converted_path
-    ], check=True)
+    converted_path
+], check=True)
     print(f"🎛️ Converted audio saved at: {converted_path}")
 
     await asyncio.sleep(1)  # Let file be available
