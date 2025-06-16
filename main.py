@@ -89,7 +89,7 @@ async def print_gpt_response(sentence: str):
 
     # ✅ Save audio to static path for Twilio
     os.makedirs("static/audio", exist_ok=True)
-    with open("static/audio/response.wav", "wb") as f:
+    with open("static/audio/response.mp3", "wb") as f:
         f.write(audio_bytes)
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
@@ -107,7 +107,7 @@ async def twilio_voice_webhook(_: Request):
 
     # ✅ Correct dynamic file path setup
     ts = int(time.time())
-    filename = f"response_{ts}.wav"
+    filename = f"response_{ts}.mp3"
     file_path = f"static/audio/{filename}"
 
     elevenlabs_response = requests.post(
@@ -129,7 +129,7 @@ async def twilio_voice_webhook(_: Request):
     audio_bytes = elevenlabs_response.content
 
     ts = int(time.time())
-    filename = f"response_{ts}.wav"
+    filename = f"response_{ts}.mp3"
     file_path = f"static/audio/{filename}"
 
     with open(file_path, "wb") as f:
@@ -138,7 +138,7 @@ async def twilio_voice_webhook(_: Request):
     print(f"💾 Saved audio to {file_path}")
 
     # ✅ Convert to 8kHz μ-law using ffmpeg
-    converted_path = file_path.replace(".wav", "_ulaw.wav")
+    converted_path = file_path.replace(".mp3", "_ulaw.mp3")
     subprocess.run([
         "/usr/bin/ffmpeg",
         "-y",
@@ -157,7 +157,7 @@ async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
 
     # ✅ GPT Speaks first with unique filename
-    ulaw_filename = filename.replace(".wav", "_ulaw.wav")
+    ulaw_filename = filename.replace(".wav", "_ulaw.mp3")
     vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
 
     vr.pause(length=1)
@@ -239,7 +239,7 @@ async def media_stream(ws: WebSocket):
                                         audio_bytes = audio_response.content
                                         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
-                                        with open("static/audio/response.wav", "wb") as f:
+                                        with open("static/audio/response.mp3", "wb") as f:
                                             f.write(audio_bytes)
                                             print("✅ Audio saved to static/audio/response.wav")
                                     except Exception as audio_e:
