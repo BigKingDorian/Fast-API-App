@@ -82,19 +82,20 @@ async def print_gpt_response(sentence: str):
 
     # 👇 Make unique filename with timestamp
     ts = int(time.time())
-    filename = f"response_{ts}.wav"
+    filename = f"response_{ts}.mp3"  # ✅ use .mp3 here
     file_path = f"static/audio/{filename}"
+
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
 
-    # ✅ Save audio to static path for Twilio
     os.makedirs("static/audio", exist_ok=True)
-    with open("static/audio/response.mp3", "wb") as f:
-        f.write(audio_bytes)
-        print("✅ Audio file saved at:", file_path)
-        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+    with open(file_path, "wb") as f:  # ✅ use dynamic path
+    f.write(audio_bytes)
+    print("✅ Audio file saved at:", file_path)
+    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
-    await asyncio.sleep(1)  # Let file save completely and be served
+    await asyncio.sleep(1)
+
 
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
