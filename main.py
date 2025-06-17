@@ -242,10 +242,13 @@ async def media_stream(ws: WebSocket):
                                     audio_bytes = audio_response.content
                                     print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
-                                    with open("static/audio/response.mp3", "wb") as f:
+                                    unique_id = uuid.uuid4().hex
+                                    filename = f"response_{unique_id}.mp3"
+                                    file_path = f"static/audio/{filename}"
+                                    with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
-                                        print("✅ Audio saved to static/audio/response.wav")
-
+                                        print(f"✅ Audio saved to {file_path}")
+                                        
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
