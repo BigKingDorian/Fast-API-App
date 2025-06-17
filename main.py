@@ -105,11 +105,6 @@ async def twilio_voice_webhook(_: Request):
     gpt_text = await get_gpt_response("Hello, what can I help you with?")
     print(f"🤖 GPT: {gpt_text}")
 
-    # ✅ Correct dynamic file path setup
-    ts = int(time.time())
-    filename = f"response_{ts}.mp3"
-    file_path = f"static/audio/{filename}"
-
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
         headers={
