@@ -87,15 +87,22 @@ async def print_gpt_response(sentence: str):
 
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
-
+    
     os.makedirs("static/audio", exist_ok=True)
     with open(file_path, "wb") as f:  # ✅ use dynamic path
         f.write(audio_bytes)
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-
-    await asyncio.sleep(1)
-
+        
+    for _ in range(10):  # wait up to 5 seconds
+        if os.path.exists(converted_path):
+            print("✅ File exists for playback:", converted_path)
+            break
+        print("⌛ Waiting for file to become available...")
+        time.sleep(0.5)
+    else:
+        print("❌ File still not found after 5 seconds!")
+        
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
