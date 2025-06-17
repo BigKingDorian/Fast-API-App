@@ -157,7 +157,7 @@ async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
 
     # ✅ GPT Speaks first with unique filename
-    ulaw_filename = filename.replace(".wav", "_ulaw.mp3")
+    ulaw_filename = filename.replace(".mp3", "_ulaw.mp3")
     vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
 
     vr.pause(length=1)
