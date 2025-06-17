@@ -81,10 +81,11 @@ async def print_gpt_response(sentence: str):
     # Step 3: Save audio to file
     audio_bytes = audio_response.content
     
-    # 👇 Make unique filename with timestamp
-    ts = int(time.time())
-    filename = f"response_{ts}.mp3"  # ✅ use .mp3 here
+    # 👇 Make unique filename with UUID
+    unique_id = str(uuid.uuid4())
+    filename = f"response_{unique_id}.mp3"
     file_path = f"static/audio/{filename}"
+    converted_path = f"static/audio/response_{unique_id}_ulaw.mp3"
 
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
@@ -160,9 +161,9 @@ async def twilio_voice_webhook(_: Request):
     vr = VoiceResponse()
 
     # ✅ GPT Speaks first with unique filename
-    ulaw_filename = filename.replace(".mp3", "_ulaw.mp3")
+    ulaw_filename = f"response_{unique_id}_ulaw.mp3"
     vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-
+    
     vr.pause(length=1)
 
     # ✅ Start Deepgram stream
