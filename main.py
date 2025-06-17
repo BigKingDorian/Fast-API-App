@@ -3,6 +3,7 @@ import json
 import base64
 import asyncio
 import time
+import uuid
 import subprocess
 import requests  # ✅ Added for ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
@@ -130,8 +131,8 @@ async def twilio_voice_webhook(_: Request):
 
     audio_bytes = elevenlabs_response.content
 
-    ts = int(time.time())
-    filename = f"response_{ts}.mp3"
+    unique_id = uuid.uuid4().hex
+    filename = f"response_{unique_id}.mp3"
     file_path = f"static/audio/{filename}"
 
     with open(file_path, "wb") as f:
@@ -140,7 +141,7 @@ async def twilio_voice_webhook(_: Request):
     print(f"💾 Saved audio to {file_path}")
 
     # ✅ Convert to 8kHz μ-law using ffmpeg
-    converted_path = file_path.replace(".mp3", "_ulaw.mp3")
+    converted_path = f"static/audio/response_{unique_id}_ulaw.mp3"
     subprocess.run([
         "/usr/bin/ffmpeg",
         "-y",
