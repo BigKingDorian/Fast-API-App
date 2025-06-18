@@ -154,28 +154,28 @@ async def twilio_voice_webhook(_: Request):
     converted_path
 ], check=True)
     print(f"🎛️ Converted audio saved at: {converted_path}")
-
-    await asyncio.sleep(1)  # Let file be available
-
-    # Return TwiML
-    vr = VoiceResponse()
-
-    # ✅ GPT Speaks first with unique filename
-    ulaw_filename = f"response_{unique_id}_ulaw.mp3"
-    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
     
-    vr.pause(length=1)
-
-    # ✅ Start Deepgram stream
+    await asyncio.sleep(1)  # Let file be available
+    
+    # ✅ Return TwiML
+    vr = VoiceResponse()
+    
+    # ✅ Start Deepgram stream FIRST
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-
-    vr.pause(length=60)
-
+    
+    # ✅ Then play the AI-generated audio
+    ulaw_filename = f"response_{unique_id}_ulaw.mp3"
+    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+    
+    # ✅ Add pause after audio to allow caller to respond
+    vr.pause(length=10)
+    
+    # ✅ Return TwiML
     return Response(content=str(vr), media_type="application/xml")
     
 @app.websocket("/media")
