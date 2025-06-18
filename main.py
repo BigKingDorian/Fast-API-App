@@ -83,9 +83,9 @@ async def print_gpt_response(sentence: str):
     
     # 👇 Make unique filename with UUID
     unique_id = str(uuid.uuid4())
-    filename = f"response_{unique_id}.mp3"
+    filename = f"response_{unique_id}.wav"
     file_path = f"static/audio/{filename}"
-    converted_path = f"static/audio/response_{unique_id}_ulaw.mp3"
+    converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
 
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
@@ -133,7 +133,7 @@ async def twilio_voice_webhook(_: Request):
     audio_bytes = elevenlabs_response.content
 
     unique_id = uuid.uuid4().hex
-    filename = f"response_{unique_id}.mp3"
+    filename = f"response_{unique_id}.wav"
     file_path = f"static/audio/{filename}"
 
     with open(file_path, "wb") as f:
@@ -142,7 +142,7 @@ async def twilio_voice_webhook(_: Request):
     print(f"💾 Saved audio to {file_path}")
 
     # ✅ Convert to 8kHz μ-law using ffmpeg
-    converted_path = f"static/audio/response_{unique_id}_ulaw.mp3"
+    converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
     subprocess.run([
         "/usr/bin/ffmpeg",
         "-y",
@@ -150,7 +150,6 @@ async def twilio_voice_webhook(_: Request):
         "-ar", "8000",
         "-ac", "1",
         "-c:a", "pcm_mulaw",
-        "-f", "mulaw",
     converted_path
 ], check=True)
     print(f"🎛️ Converted audio saved at: {converted_path}")
@@ -169,7 +168,7 @@ async def twilio_voice_webhook(_: Request):
     vr.append(start)
     
     # ✅ Then play the AI-generated audio
-    ulaw_filename = f"response_{unique_id}_ulaw.mp3"
+    ulaw_filename = f"response_{unique_id}_ulaw.wav"
     vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
     
     # ✅ Add pause after audio to allow caller to respond
@@ -243,7 +242,7 @@ async def media_stream(ws: WebSocket):
                                     print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
 
                                     unique_id = uuid.uuid4().hex
-                                    filename = f"response_{unique_id}.mp3"
+                                    filename = f"response_{unique_id}.wav"
                                     file_path = f"static/audio/{filename}"
                                     with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
