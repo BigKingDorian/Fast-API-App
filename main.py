@@ -101,7 +101,7 @@ async def print_gpt_response(sentence: str):
             print("✅ File exists for playback:", converted_path)
             break
         print("⌛ Waiting for file to become available...")
-        time.sleep(0.5)
+        time.sleep(2)
     else:
         print("❌ File still not found after 5 seconds!")
         
