@@ -26,6 +26,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")  # ✅ Also needed
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
+# Simple in-memory session store
+session_memory = {}
+
+def save_transcript(call_sid, transcript):
+    session_memory[call_sid] = transcript
+
+def get_last_transcript_for_this_call(call_sid):
+    return session_memory.get(call_sid, "Hello, what can I help you with?")
+
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
@@ -186,6 +195,8 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+    call_sid = None  # You can later pass this in from Twilio
+    
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
@@ -221,6 +232,8 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
+                            if call_sid_holder["sid"]:
+                                save_transcript(call_sid_holder["sid"], sentence)
 
                             async def gpt_and_audio_pipeline(text):
                                 response = await get_gpt_response(text)
@@ -302,6 +315,7 @@ async def media_stream(ws: WebSocket):
 
                 if event == "start":
                     print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+                    call_sid_holder["sid"] = msg["start"].get("callerSid") or msg["start"].get("CallSid")
 
                 elif event == "media":
                     print("📡 Media event received")
