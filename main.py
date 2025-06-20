@@ -173,6 +173,9 @@ async def twilio_voice_webhook(_: Request):
     
     # ✅ Add pause after audio to allow caller to respond
     vr.pause(length=10)
+
+    # Supposed to complete loop in Twiml
+    vr.redirect("/", method="POST")
     
     # ✅ Return TwiML
     return Response(content=str(vr), media_type="application/xml")
