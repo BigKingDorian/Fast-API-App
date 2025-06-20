@@ -121,7 +121,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
     call_sid = request.headers.get("X-Twilio-CallSid") or "default"
-    gpt_input = get_last_transcript_for_this_call()
+    gpt_input = get_last_transcript_for_this_call(call_sid)
     gpt_text = await get_gpt_response(gpt_input)
     print(f"🤖 GPT: {gpt_text}")
 
