@@ -196,7 +196,7 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-    call_sid = None  # You can later pass this in from Twilio
+    call_sid_holder = {"sid": None}
     
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
