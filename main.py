@@ -189,12 +189,20 @@ async def twilio_voice_webhook(request: Request):
     )
     vr.append(start)
     
-    # ✅ Then play the AI-generated audio
-    audio_path = get_last_audio_for_call(call_sid)
-    if audio_path and os.path.exists(audio_path):
+    # Try up to 10 times (3 seconds total) to wait for audio to be ready
+    audio_path = None
+    for _ in range(10):
+        audio_path = get_last_audio_for_call(call_sid)
+        if audio_path and os.path.exists(audio_path):
+            break
+        await asyncio.sleep(0.3)
+
+    if audio_path:
         ulaw_filename = os.path.basename(audio_path)
+        print(f"✅ Playing audio: {ulaw_filename}")
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
     else:
+        print("❌ Audio not found, falling back to say message")
         vr.say("Sorry, something went wrong.")
         
     # ✅ Add pause after audio to allow caller to respond
