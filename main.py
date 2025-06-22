@@ -362,9 +362,21 @@ async def media_stream(ws: WebSocket):
                 event = msg.get("event")
 
                 if event == "start":
-                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
-                    call_sid_holder["sid"] = msg["start"].get("callerSid") or msg["start"].get("CallSid")
-                    print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
+                print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+
+                # Debug print to inspect what Twilio actually sent
+                print("🧾 Twilio start event data:", json.dumps(msg["start"], indent=2))
+
+                # Try all possible keys Twilio might send
+                sid = (
+                    msg["start"].get("callSid") or
+                    msg["start"].get("CallSid") or
+                    msg["start"].get("callerSid") or
+                    msg["start"].get("CallerSid")
+                )
+
+                call_sid_holder["sid"] = sid
+                print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
 
                 elif event == "media":
                     print("📡 Media event received")
