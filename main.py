@@ -132,6 +132,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
     call_sid = request.headers.get("X-Twilio-CallSid") or "default"
+    print(f"📞 [POST] Incoming Call SID: {call_sid}")
     gpt_input = get_last_transcript_for_this_call(call_sid)
     gpt_text = await get_gpt_response(gpt_input)
     print(f"🤖 GPT: {gpt_text}")
@@ -188,6 +189,9 @@ async def twilio_voice_webhook(request: Request):
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
+    
+    print("🧠 session_memory snapshot:")
+    print(json.dumps(session_memory, indent=2))
     
     audio_path = None
     
@@ -302,6 +306,8 @@ async def media_stream(ws: WebSocket):
                                         "-c:a", "pcm_mulaw",
                                         converted_path
                                     ], check=True)
+                                    
+                                     print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
@@ -357,6 +363,7 @@ async def media_stream(ws: WebSocket):
                 if event == "start":
                     print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
                     call_sid_holder["sid"] = msg["start"].get("callerSid") or msg["start"].get("CallSid")
+                    print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
 
                 elif event == "media":
                     print("📡 Media event received")
