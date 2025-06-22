@@ -280,8 +280,21 @@ async def media_stream(ws: WebSocket):
                                     with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
                                         print(f"✅ Audio saved to {file_path}")
-                                        save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                        
+
+                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                    subprocess.run([
+                                        "/usr/bin/ffmpeg",
+                                        "-y",
+                                        "-i", file_path,
+                                        "-ar", "8000",
+                                        "-ac", "1",
+                                        "-c:a", "pcm_mulaw",
+                                        converted_path
+                                    ], check=True)
+
+                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+         
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
