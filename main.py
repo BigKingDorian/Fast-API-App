@@ -176,6 +176,7 @@ async def twilio_voice_webhook(request: Request):
     converted_path
 ], check=True)
     print(f"🎛️ Converted audio saved at: {converted_path}")
+    save_transcript(call_sid, gpt_text, converted_path)
     
     await asyncio.sleep(1)  # Let file be available
     
