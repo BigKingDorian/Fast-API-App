@@ -29,11 +29,19 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 # Simple in-memory session store
 session_memory = {}
 
-def save_transcript(call_sid, transcript):
-    session_memory[call_sid] = transcript
+def save_transcript(call_sid, transcript, audio_path=None):
+    session_memory[call_sid] = {
+        "transcript": transcript,
+        "audio_path": audio_path
+    }
 
 def get_last_transcript_for_this_call(call_sid):
-    return session_memory.get(call_sid, "Hello, what can I help you with?")
+    data = session_memory.get(call_sid)
+    return data["transcript"] if data else "Hello, what can I help you with?"
+
+def get_last_audio_for_call(call_sid):
+    data = session_memory.get(call_sid)
+    return data["audio_path"] if data and "audio_path" in data else None
 
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
@@ -48,12 +56,15 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
-        response = client.responses.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
-            instructions="You are a helpful assistant who responds clearly and concisely.",
-            input=user_text
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant. Keep your responses clear and concise."},
+                {"role": "user", "content": user_text}
+            ]
         )
-        return response.output_text
+        return response.choices[0].message.content
+
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
@@ -179,14 +190,18 @@ async def twilio_voice_webhook(request: Request):
     vr.append(start)
     
     # ✅ Then play the AI-generated audio
-    ulaw_filename = f"response_{unique_id}_ulaw.wav"
-    vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-    
+    audio_path = get_last_audio_for_call(call_sid)
+    if audio_path and os.path.exists(audio_path):
+        ulaw_filename = os.path.basename(audio_path)
+        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+    else:
+        vr.say("Sorry, something went wrong.")
+        
     # ✅ Add pause after audio to allow caller to respond
     vr.pause(length=10)
 
     # Supposed to complete loop in Twiml
-    vr.redirect("/", method="POST")
+    vr.hangup()
     
     # ✅ Return TwiML
     return Response(content=str(vr), media_type="application/xml")
@@ -265,6 +280,7 @@ async def media_stream(ws: WebSocket):
                                     with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
                                         print(f"✅ Audio saved to {file_path}")
+                                        save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                         
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
