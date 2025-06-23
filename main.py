@@ -177,6 +177,7 @@ async def twilio_voice_webhook(request: Request):
 ], check=True)
     print(f"🎛️ Converted audio saved at: {converted_path}")
     save_transcript(call_sid, gpt_text, converted_path)
+    print(f"✅ [POST] Saved transcript for: {call_sid} → {converted_path}")
     
     await asyncio.sleep(1)  # Let file be available
     
@@ -195,6 +196,10 @@ async def twilio_voice_webhook(request: Request):
     print(json.dumps(session_memory, indent=2))
     
     audio_path = None
+    
+    # 🕵️ Print full session memory for debugging
+    print("📂 Full session_memory keys:", list(session_memory.keys()))
+    print("📂 Full session_memory dump:", json.dumps(session_memory, indent=2))
     
     # Pull fallback SID from websocket memory if "default"
     if call_sid == "default":
@@ -319,6 +324,7 @@ async def media_stream(ws: WebSocket):
 
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
          
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
