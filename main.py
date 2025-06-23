@@ -196,6 +196,13 @@ async def twilio_voice_webhook(request: Request):
     
     audio_path = None
     
+    # Pull fallback SID from websocket memory if "default"
+    if call_sid == "default":
+        sid_guess = next(iter(session_memory.keys()), None)
+        if sid_guess:
+            print(f"⚠️ Falling back to sid_guess: {sid_guess}")
+            call_sid = sid_guess
+    
     # ⏳ Retry up to 10 times, waiting for WebSocket to generate the audio
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
