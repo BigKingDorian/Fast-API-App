@@ -17,6 +17,7 @@ requests = "^2.31.0"           # ✅ For ElevenLabs API calls
 httpx = "^0.27.0"              # Optional, used by OpenAI
 pydub = "^0.25.1"              # Optional, if manipulating audio
 aiofiles = "^23.2.1"           # ✅ Optional: helps serve static files (if needed)
+python-multipart = "^0.0.20"
 
 [build-system]
 requires = ["poetry-core"]
