@@ -131,9 +131,16 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
-    call_sid = request.headers.get("X-Twilio-CallSid") or "default"
+    # ✅ Get the real CallSid from the form data (Twilio sends it this way)
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    
     print(f"📞 [POST] Incoming Call SID: {call_sid}")
+    
+    # ✅ Use per-call session memory
     gpt_input = get_last_transcript_for_this_call(call_sid)
+    
+    # ✅ Get GPT response
     gpt_text = await get_gpt_response(gpt_input)
     print(f"🤖 GPT: {gpt_text}")
 
@@ -200,13 +207,6 @@ async def twilio_voice_webhook(request: Request):
     # 🕵️ Print full session memory for debugging
     print("📂 Full session_memory keys:", list(session_memory.keys()))
     print("📂 Full session_memory dump:", json.dumps(session_memory, indent=2))
-    
-    # Pull fallback SID from websocket memory if "default"
-    if call_sid == "default":
-        sid_guess = next(iter(session_memory.keys()), None)
-        if sid_guess:
-            print(f"⚠️ Falling back to sid_guess: {sid_guess}")
-            call_sid = sid_guess
     
     # ⏳ Retry up to 10 times, waiting for WebSocket to generate the audio
     for _ in range(10):
