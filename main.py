@@ -133,19 +133,29 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
-    # ✅ Get the real CallSid from the form data (Twilio sends it this way)
+    print("\n📞 ── [POST] Twilio webhook hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
-    
-    print(f"📞 [POST] Incoming Call SID: {call_sid}")
-    
-    # ✅ Use per-call session memory
-    gpt_input = get_last_transcript_for_this_call(call_sid)
-    
-    # ✅ Get GPT response
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"🤖 GPT: {gpt_text}")
+    print(f"🆔 Call SID: {call_sid}")
 
+    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    gpt_input = get_last_transcript_for_this_call(call_sid)
+    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+
+    fallback_phrases = {
+        "", "hello", "hi",
+        "hello, what can i help you with?",
+        "[gpt failed to respond]",
+    }
+    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
+        print("🚫 No real transcript yet ➜ using default greeting.")
+        gpt_text = "Hello, how can I help you today?"
+    else:
+        gpt_text = await get_gpt_response(gpt_input)
+        print(f"✅ GPT response: \"{gpt_text}\"")
+
+    # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
         headers={
@@ -155,85 +165,67 @@ async def twilio_voice_webhook(request: Request):
         json={
             "text": gpt_text,
             "model_id": "eleven_flash_v2_5",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
         }
     )
+    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+          f"bytes {len(elevenlabs_response.content)}")
 
     audio_bytes = elevenlabs_response.content
-
     unique_id = uuid.uuid4().hex
-    filename = f"response_{unique_id}.wav"
-    file_path = f"static/audio/{filename}"
+    file_path = f"static/audio/response_{unique_id}.wav"
 
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
+    print(f"💾 Saved original WAV → {file_path}")
 
-    print(f"💾 Saved audio to {file_path}")
-
-    # ✅ Convert to 8kHz μ-law using ffmpeg
+    # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
     subprocess.run([
-        "/usr/bin/ffmpeg",
-        "-y",
-        "-i", file_path,
-        "-ar", "8000",
-        "-ac", "1",
-        "-c:a", "pcm_mulaw",
-    converted_path
-], check=True)
-    print(f"🎛️ Converted audio saved at: {converted_path}")
+        "/usr/bin/ffmpeg", "-y", "-i", file_path,
+        "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+    ], check=True)
+    print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
+
     save_transcript(call_sid, gpt_text, converted_path)
-    print(f"✅ [POST] Saved transcript for: {call_sid} → {converted_path}")
-    
-    await asyncio.sleep(1)  # Let file be available
-    
-    # ✅ Return TwiML
+    print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+
+    # ✅ Small delay for file availability on disk
+    await asyncio.sleep(1)
+
+    # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
-    
-    # ✅ Start Deepgram stream FIRST
+
+    # Start Deepgram stream
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-    
-    print("🧠 session_memory snapshot:")
-    print(json.dumps(session_memory, indent=2))
-    
+
+    # Try to retrieve the most recent converted file with retries
     audio_path = None
-    
-    # 🕵️ Print full session memory for debugging
-    print("📂 Full session_memory keys:", list(session_memory.keys()))
-    print("📂 Full session_memory dump:", json.dumps(session_memory, indent=2))
-    
-    # ⏳ Retry up to 10 times, waiting for WebSocket to generate the audio
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
         print(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(0.3)
-        
+        await asyncio.sleep(1)
+
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
-        print(f"✅ Playing audio: {ulaw_filename}")
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-        
-    # ✅ Add pause after audio to allow caller to respond
-    vr.pause(length=10)
 
-    # Supposed to complete loop in Twiml
-    vr.hangup()
-    
-    # ✅ Return TwiML
+    vr.pause(length=10)
+    # ✅ Replace hangup with redirect back to self
+    vr.redirect("/")
+    print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
     
 @app.websocket("/media")
@@ -422,4 +414,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
+        
