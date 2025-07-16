@@ -123,7 +123,7 @@ async def print_gpt_response(sentence: str):
             print("✅ File exists for playback:", converted_path)
             break
         print("⌛ Waiting for file to become available...")
-        time.sleep(5)
+        time.sleep(0.5)
     else:
         print("❌ File still not found after 5 seconds!")
         
@@ -212,7 +212,7 @@ async def twilio_voice_webhook(request: Request):
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
@@ -222,7 +222,7 @@ async def twilio_voice_webhook(request: Request):
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
 
-    vr.pause(length=5)
+    vr.pause(length=10)
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
@@ -415,3 +415,4 @@ async def media_stream(ws: WebSocket):
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
         
+
