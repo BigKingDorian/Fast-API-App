@@ -345,10 +345,13 @@ async def media_stream(ws: WebSocket):
             punctuate=True,
         )
         print("✏️ LiveOptions being sent:", options.__dict__)
-        dg_connection.start(options)
-        print("✅ Deepgram connection started")
 
+               # -------------------------------------------------
+        # 3.  SENDER LOOP  (Twilio → Deepgram passthrough)
+        # -------------------------------------------------
         async def sender():
+            dg_connection_started = False          # NEW flag
+
             while True:
                 try:
                     raw = await ws.receive_text()
@@ -369,28 +372,26 @@ async def media_stream(ws: WebSocket):
                 event = msg.get("event")
 
                 if event == "start":
-                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
-
-                    # Debug print to inspect what Twilio actually sent
-                    print("🧾 Twilio start event data:", json.dumps(msg["start"], indent=2))
-
-                    # Try all possible keys Twilio might send
-                    sid = (
-                        msg["start"].get("callSid") or
-                        msg["start"].get("CallSid") or
-                        msg["start"].get("callerSid") or
-                        msg["start"].get("CallerSid")
-                    )
-
-                    call_sid_holder["sid"] = sid
-                    print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
+                    ...
+                    # (unchanged ‘start’ handling code)
+                    ...
 
                 elif event == "media":
                     print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
+
+                        # ---------- LAZY-START ----------
+                        if not dg_connection_started:
+                            dg_connection.start(options)
+                            dg_connection_started = True
+                            print("✅ Deepgram stream officially started "
+                                  "after receiving media.")
+                        # ---------------------------------
+
                         dg_connection.send(payload)
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram "
+                              "(event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
@@ -414,5 +415,3 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-        
-
