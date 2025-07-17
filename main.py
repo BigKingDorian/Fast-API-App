@@ -118,12 +118,12 @@ async def print_gpt_response(sentence: str):
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
-    for _ in range(5):  # wait up to 5 seconds
+    for _ in range(10):  # wait up to 5 seconds
         if os.path.exists(converted_path):
             print("✅ File exists for playback:", converted_path)
             break
         print("⌛ Waiting for file to become available...")
-        time.sleep(2)
+        time.sleep(0.5)
     else:
         print("❌ File still not found after 5 seconds!")
         
@@ -191,7 +191,7 @@ async def twilio_voice_webhook(request: Request):
     print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
 
     # ✅ Small delay for file availability on disk
-    await asyncio.sleep(3)
+    await asyncio.sleep(1)
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
@@ -222,7 +222,7 @@ async def twilio_voice_webhook(request: Request):
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
 
-    vr.pause(length=3)
+    vr.pause(length=10)
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
