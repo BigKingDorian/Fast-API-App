@@ -118,12 +118,12 @@ async def print_gpt_response(sentence: str):
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
-    for _ in range(10):  # wait up to 5 seconds
+    for _ in range(5):  # wait up to 5 seconds
         if os.path.exists(converted_path):
             print("✅ File exists for playback:", converted_path)
             break
         print("⌛ Waiting for file to become available...")
-        time.sleep(0.5)
+        time.sleep(2)
     else:
         print("❌ File still not found after 5 seconds!")
         
