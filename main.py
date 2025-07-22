@@ -233,7 +233,7 @@ async def twilio_voice_webhook(request: Request):
     print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
 
     # ✅ Small delay for file availability on disk
-    await asyncio.sleep(1)
+    await asyncio.sleep(4)
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
