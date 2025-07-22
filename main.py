@@ -126,10 +126,30 @@ async def print_gpt_response(sentence: str):
         time.sleep(0.5)
     else:
         print("❌ File still not found after 5 seconds!")
-        
+
+class VerboseStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        abs_path = self.full_path(path)
+        exists   = os.path.exists(abs_path)
+        readable = os.access(abs_path, os.R_OK)
+
+        print(
+            f"📂 Static GET {path!r} → exists={exists} "
+            f"readable={readable} size={os.path.getsize(abs_path) if exists else '—'}"
+        )
+
+        if not exists:
+            try:
+                parent = os.path.dirname(abs_path)
+                print("📑 Dir listing:", os.listdir(parent))
+            except Exception as e:
+                print("⚠️ Could not list directory:", e)
+
+        return await super().get_response(path, scope)
+
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", VerboseStaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
