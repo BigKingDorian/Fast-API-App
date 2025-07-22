@@ -146,11 +146,16 @@ async def print_gpt_response(sentence: str):
 
 class VerboseStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
+        #Build full URL
+        scheme   = scope.get("scheme", "http")
+        host     = dict(scope["headers"]).get(b"host", b"-").decode()
+        full_url = f"{scheme}://{host}{scope['path']}"
+
         abs_path = self.full_path(path)
         exists   = os.path.exists(abs_path)
         readable = os.access(abs_path, os.R_OK)
 
-        print(
+        log(
             f"📂 Static GET {path!r} → exists={exists} "
             f"readable={readable} size={os.path.getsize(abs_path) if exists else '—'}"
         )
@@ -158,9 +163,9 @@ class VerboseStaticFiles(StaticFiles):
         if not exists:
             try:
                 parent = os.path.dirname(abs_path)
-                print("📑 Dir listing:", os.listdir(parent))
+                log("📑 Dir listing:", os.listdir(parent))
             except Exception as e:
-                print("⚠️ Could not list directory:", e)
+                log("⚠️ Could not list directory:", e)
 
         return await super().get_response(path, scope)
 
