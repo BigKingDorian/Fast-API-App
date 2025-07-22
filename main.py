@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import base64
@@ -10,6 +11,22 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
+
+# Detect which VM / container you’re on
+INSTANCE = (
+    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (present in production)
+    or os.getenv("HOSTNAME")       # Docker / Kubernetes fallback
+    or os.uname().nodename         # last-resort fallback
+)
+
+# Configure the root logger
+logging.basicConfig(
+    level=logging.INFO,
+    format=f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
+log = logging.getLogger("app").info     # quick alias → use log(...)
 
 # ✅ Load .env before any getenv calls
 from dotenv import load_dotenv
