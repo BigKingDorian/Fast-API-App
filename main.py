@@ -224,6 +224,8 @@ async def twilio_voice_webhook(request: Request):
     ], check=True)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
 
+    log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
+
     save_transcript(call_sid, gpt_text, converted_path)
     print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
 
@@ -245,7 +247,7 @@ async def twilio_voice_webhook(request: Request):
     audio_path = None
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
-        print(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
