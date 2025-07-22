@@ -110,8 +110,6 @@ async def print_gpt_response(sentence: str):
         }
     )
 
-    print("🧪 ElevenLabs status:", audio_response.status_code)
-    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
@@ -163,9 +161,9 @@ class VerboseStaticFiles(StaticFiles):
         if not exists:
             try:
                 parent = os.path.dirname(abs_path)
-                log("📑 Dir listing:", os.listdir(parent))
+                log("📑 Dir listing: %s", os.listdir(parent))
             except Exception as e:
-                log("⚠️ Could not list directory:", e)
+                log("⚠️ Could not list directory: %s", e)
 
         return await super().get_response(path, scope)
 
