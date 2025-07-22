@@ -277,6 +277,17 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+    async def sender():
+        dg_connection_started = False
+        try:
+            while: True
+            raw = await ws.receive_text()
+
+        except Exception as e:
+              log("❌ sender loop crashed: %s", e, exc_info=True)
+            await ws.close(code=1011)
+    await sender()           
+
     call_sid_holder = {"sid": None}
     
     loop = asyncio.get_running_loop()
