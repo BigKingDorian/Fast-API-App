@@ -149,7 +149,7 @@ class VerboseStaticFiles(StaticFiles):
         host     = dict(scope["headers"]).get(b"host", b"-").decode()
         full_url = f"{scheme}://{host}{scope['path']}"
 
-        abs_path = self.full_path(path)
+        abs_path = os.path.abspath(os.path.join(self.directory, path))
         exists   = os.path.exists(abs_path)
         readable = os.access(abs_path, os.R_OK)
 
