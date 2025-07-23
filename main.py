@@ -225,8 +225,13 @@ async def twilio_voice_webhook(request: Request):
         "/usr/bin/ffmpeg", "-y", "-i", file_path,
         "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
     ], check=True)
-    print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
+    
+    for _ in range(10):  # wait up to 5 seconds
+        if os.path.exists(converted_path):
+            break
+        await asyncio.sleep(0.5)
 
+    print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
 
     save_transcript(call_sid, gpt_text, converted_path)
