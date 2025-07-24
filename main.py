@@ -58,6 +58,12 @@ def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
     return data["transcript"] if data else "Hello, what can I help you with?"
 
+def is_file_ready(path):
+    try:
+        return os.path.exists(path) and os.path.getsize(path) > 0 and os.access(path, os.R_OK)
+    except Exception:
+        return False
+
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
     return data["audio_path"] if data and "audio_path" in data else None
