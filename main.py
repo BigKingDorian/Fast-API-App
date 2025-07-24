@@ -328,6 +328,10 @@ async def media_stream(ws: WebSocket):
                             print(f"📝 {sentence}")
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
+                    except Exception as e:
+                        print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
+                except Exception as e:
+                    print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
