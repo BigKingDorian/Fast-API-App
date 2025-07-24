@@ -281,16 +281,7 @@ async def twilio_voice_webhook(request: Request):
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
     await ws.accept()
-    print("★ Twilio WebSocket connected")
-
-    async def sender():
-        dg_connection_started = False
-        try:
-            while True:
-                raw = await ws.receive_text()
-
-        except Exception as e:
-            await ws.close(code=1011)          
+    print("★ Twilio WebSocket connected")         
 
     call_sid_holder = {"sid": None}
     
