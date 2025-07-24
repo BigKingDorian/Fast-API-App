@@ -326,16 +326,32 @@ async def media_stream(ws: WebSocket):
                     print(json.dumps(payload, indent=2))
 
                     try:
-                        sentence = payload["channel"]["alternatives"][0]["transcript"]
-                        if sentence:
-                            print(f"📝 {sentence}")
-                            if call_sid_holder["sid"]:
-                                save_transcript(call_sid_holder["sid"], sentence)
+                        alternatives = payload["channel"]["alternatives"]
+                        if not alternatives or not alternatives[0].get("transcript"):
+                            return
+
+                        sentence = alternatives[0]["transcript"].strip()
+                        confidence = alternatives[0].get("confidence", 0.0)
+
+                        # Skip background noise, filler, and repeated bot phrases
+                        fallback_phrases = {
+                            "", "hello", "hi", "okay", "yes", "no",
+                            "hello, what can i help you with?",
+                            "how can i help you",
+                            "hello! how can i assist you today?",
+                            "how may i assist you today?"
+                        }
+
+                        if confidence < 0.6 or sentence.lower() in fallback_phrases:
+                            print(f"⚠️ Skipping weak/noise transcript: \"{sentence}\" (conf: {confidence})")
+                            return
+
+                        print(f"📝 {sentence} (conf: {confidence})")
+                        if call_sid_holder["sid"]:
+                            save_transcript(call_sid_holder["sid"], sentence)
+
                     except Exception as e:
-                        print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
-                        
-            except Exception as e:
-                print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
+                        print(f"⚠️ Error parsing transcript: {e}")
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
