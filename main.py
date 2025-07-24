@@ -330,6 +330,7 @@ async def media_stream(ws: WebSocket):
                                 save_transcript(call_sid_holder["sid"], sentence)
                     except Exception as e:
                         print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
+                        
                 except Exception as e:
                     print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
 
