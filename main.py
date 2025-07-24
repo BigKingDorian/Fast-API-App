@@ -175,7 +175,7 @@ app.mount("/static", VerboseStaticFiles(directory="static"), name="static")
 async def twilio_voice_webhook(request: Request):
     print("\n📞 ── [POST] Twilio webhook hit ───────────────────────────────────")
     form_data = await request.form()
-    call_sid = form_data.get("CallSid") 
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
