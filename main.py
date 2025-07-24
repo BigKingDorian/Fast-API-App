@@ -259,7 +259,7 @@ async def twilio_voice_webhook(request: Request):
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
@@ -287,9 +287,7 @@ async def media_stream(ws: WebSocket):
                 raw = await ws.receive_text()
 
         except Exception as e:
-            log("❌ sender loop crashed: %s", e, exc_info=True)
-            await ws.close(code=1011)
-    await sender()           
+            await ws.close(code=1011)          
 
     call_sid_holder = {"sid": None}
     
@@ -330,68 +328,6 @@ async def media_stream(ws: WebSocket):
                             print(f"📝 {sentence}")
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
-
-                            async def gpt_and_audio_pipeline(text):
-                                response = await get_gpt_response(text)
-                                print(f"🤖 GPT: {response}")
-
-                                try:
-                                    audio_response = requests.post(
-                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                                        headers={
-                                            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                                            "Content-Type": "application/json"
-                                        },
-                                        json={
-                                            "text": response,
-                                            "model_id": "eleven_flash_v2_5",
-                                            "voice_settings": {
-                                                "stability": 0.5,
-                                                "similarity_boost": 0.75
-                                            }
-                                        }
-                                    )
-                                    audio_bytes = audio_response.content
-                                    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-
-                                    unique_id = uuid.uuid4().hex
-                                    filename = f"response_{unique_id}.wav"
-                                    file_path = f"static/audio/{filename}"
-                                    with open(file_path, "wb") as f:
-                                        f.write(audio_bytes)
-                                        print(f"✅ Audio saved to {file_path}")
-
-                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                                    subprocess.run([
-                                        "/usr/bin/ffmpeg",
-                                        "-y",
-                                        "-i", file_path,
-                                        "-ar", "8000",
-                                        "-ac", "1",
-                                        "-c:a", "pcm_mulaw",
-                                        converted_path
-                                    ], check=True)
-                                    
-                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
-
-                                    print(f"🎛️ Converted audio saved at: {converted_path}")
-                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-         
-                                except Exception as audio_e:
-                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-
-                            loop.create_task(gpt_and_audio_pipeline(sentence))
-
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                else:
-                    print("🔍 Available attributes:", dir(result))
-                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(result.__dict__)
-
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
