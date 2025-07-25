@@ -59,8 +59,8 @@ def save_transcript(call_sid, transcript=None, audio_path=None):
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 def get_last_transcript_for_this_call(call_sid):
-    data = session_memory(call_sid)
-    return data("user_transcript", "Hello, what can I help you with?")
+    data = session_memory.get(call_sid)
+    return data.get("user_transcript", "Hello, what can I help you with?")
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
