@@ -49,10 +49,14 @@ session_memory = {}
 def save_transcript(call_sid, transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
+        
     if transcript:
         session_memory[call_sid]["transcript"] = transcript
+        log(f"💾 Transcript saved for {call_sid}: \"{transcript}\"")
+        
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
+        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
