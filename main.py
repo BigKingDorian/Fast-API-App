@@ -203,6 +203,10 @@ async def twilio_voice_webhook(request: Request):
 
         print(f"✅ GPT response: \"{gpt_text}\"")
 
+        if call_sid not in session_memory:
+            session_memory[call_sid] = {}
+        session_memory[call_sid]["gpt_response"] = gpt_text
+
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
@@ -334,9 +338,13 @@ async def media_stream(ws: WebSocket):
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
-                            if call_sid_holder["sid"]:
-                                save_transcript(call_sid_holder["sid"], sentence)
-                                log(f"🎙️ Deepgram transcript saved: {sentence}")
+                            sid = call_sid_holder["sid"]
+                            if sid:
+                                if sid not in session_memory:
+                                    session_memory[sid] = {}
+                                session_memory[sid]["user_transcript"] = sentence
+                                log(f"💾 User transcript saved for {sid}: \"{sentence}\"")
+
                     except Exception as e:
                         print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
                         
