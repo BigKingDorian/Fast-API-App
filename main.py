@@ -190,13 +190,6 @@ async def twilio_voice_webhook(request: Request):
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    last_gpt = session_memory.get(call_sid, {}).get("gpt_n")
-    if last_gpt and gpt_input == last_gpt:
-        log(f"♻️ GPT is responding to its own last message: \"{gpt_input}\"")
-        session_memory[call_sid]["loop_flag"] = True  # optional flag to detect loops
-    else:
-        session_memory[call_sid]["loop_flag"] = False
-
     fallback_phrases = {
         "", "hello", "hi",
         "hello, what can i help you with?",
@@ -207,8 +200,6 @@ async def twilio_voice_webhook(request: Request):
         gpt_text = "Hello, how can I help you today?"
     else:
         gpt_text = await get_gpt_response(gpt_input)
-        session_memory[call_sid]["gpt_n"] = gpt_text  # save last GPT response
-        log(f"🧠 Saved GPT-N: \"{gpt_text}\" for {call_sid}")
 
         print(f"✅ GPT response: \"{gpt_text}\"")
 
