@@ -46,12 +46,12 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 # Simple in-memory session store
 session_memory = {}
 
-def save_transcript(call_sid, transcript=None, audio_path=None):
+def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
         
     if transcript:
-        session_memory[call_sid]["transcript"] = transcript
+        session_memory[call_sid]["user_transcript"] = user transcript
         log(f"💾 Transcript saved for {call_sid}: \"{transcript}\"")
         
     if audio_path:
@@ -188,10 +188,12 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
-    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_transcript_for_this_call(call_sid)
-    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
-    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+# ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    for _ in range(4):  # Try for ~2 seconds total
+        gpt_input = get_last_transcript_for_this_call(call_sid)
+        if gpt_input.strip().lower() not in fallback_phrases:
+            break
+        await asyncio.sleep(0.5)
 
     fallback_phrases = {
         "", "hello", "hi",
