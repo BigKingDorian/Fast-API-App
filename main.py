@@ -344,7 +344,7 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0)
 
-                        if sentence and confidence > 0:
+                        if sentence and confidence > 0.6:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             sid = call_sid_holder["sid"]
                             if sid:
