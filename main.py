@@ -189,28 +189,29 @@ async def twilio_voice_webhook(request: Request):
     print(f"🆔 Call SID: {call_sid}")
 
 # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    for _ in range(4):  # Try for ~2 seconds total
-        gpt_input = get_last_transcript_for_this_call(call_sid)
-        if gpt_input.strip().lower() not in fallback_phrases:
-            break
-        await asyncio.sleep(0.5)
+gpt_input = get_last_transcript_for_this_call(call_sid)
+print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    fallback_phrases = {
-        "", "hello", "hi",
-        "hello, what can i help you with?",
-        "[gpt failed to respond]",
-    }
-    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
-        print("🚫 No real transcript yet ➜ using default greeting.")
-        gpt_text = "Hello, how can I help you today?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
+# 🛑 DEFINE THIS AT THE TOP-LEVEL — NOT INSIDE ANY BLOCK
+fallback_phrases = {
+    "", "hello", "hi",
+    "hello, what can i help you with?",
+    "[gpt failed to respond]",
+}
 
-        print(f"✅ GPT response: \"{gpt_text}\"")
+# ✅ Then this check works safely
+if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
+    print("🚫 No real transcript yet ➜ using default greeting.")
+    gpt_text = "Hello, how can I help you today?"
+else:
+    gpt_text = await get_gpt_response(gpt_input)
 
-        if call_sid not in session_memory:
-            session_memory[call_sid] = {}
-        session_memory[call_sid]["gpt_response"] = gpt_text
+    print(f"✅ GPT response: \"{gpt_text}\"")
+
+    if call_sid not in session_memory:
+        session_memory[call_sid] = {}
+    session_memory[call_sid]["gpt_response"] = gpt_text
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
