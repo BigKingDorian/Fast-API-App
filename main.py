@@ -69,7 +69,6 @@ def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
     return data["audio_path"] if data and "audio_path" in data else None
 
-
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
