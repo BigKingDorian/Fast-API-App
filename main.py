@@ -340,18 +340,23 @@ async def media_stream(ws: WebSocket):
                     print(json.dumps(payload, indent=2))
 
                     try:
-                        sentence = payload["channel"]["alternatives"][0]["transcript"]
-                        if sentence:
-                            print(f"📝 {sentence}")
+                        alt = payload["channel"]["alternatives"][0]
+                        sentence = alt.get("transcript", "")
+                        confidence = alt.get("confidence", 0)
+
+                        if sentence and confidence > 0:
+                            print(f"📝 {sentence} (confidence: {confidence})")
                             sid = call_sid_holder["sid"]
                             if sid:
                                 if sid not in session_memory:
                                     session_memory[sid] = {}
                                 session_memory[sid]["user_transcript"] = sentence
                                 log(f"💾 User transcript saved for {sid}: \"{sentence}\"")
+                        else:
+                            print(f"⚠️ Ignored sentence due to low confidence: \"{sentence}\" (confidence: {confidence})")
 
                     except Exception as e:
-                        print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
+                        print(f"⚠️ Error parsing transcript: {e}")
                         
             except Exception as e:
                 print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
