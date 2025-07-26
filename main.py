@@ -50,9 +50,9 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
         
-    if transcript:
+    if user_transcript:
         session_memory[call_sid]["user_transcript"] = user_transcript
-        log(f"💾 Transcript saved for {call_sid}: \"{transcript}\"")
+        log(f"💾 Transcript saved for {call_sid}: \"{user_transcript}\"")
         
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
