@@ -210,7 +210,6 @@ async def twilio_voice_webhook(request: Request):
 
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-    session_memory[call_sid]["gpt_response"] = gpt_text
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
