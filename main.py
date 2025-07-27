@@ -243,11 +243,15 @@ async def twilio_voice_webhook(request: Request):
         "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
     ], check=True)
     
+    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+
     for _ in range(10):  # wait up to 5 seconds
         if os.path.exists(converted_path):
+            print("✅ File found at path:", converted_path)
             break
+        print("⌛ File not found yet. Waiting...")
         await asyncio.sleep(0.5)
-
+        
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
 
