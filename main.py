@@ -302,6 +302,34 @@ async def twilio_voice_webhook(request: Request):
     
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
+
+@app.get("/")
+async def twilio_voice_redirect():
+    print("📞 ── [GET] Twilio redirect hit ───────────────────────────────────")
+    
+    vr = VoiceResponse()
+    vr.say("Hello again. What can I help you with?")
+    
+    # Re-open stream if needed
+    start = Start()
+    start.stream(
+        url="wss://silent-sound-1030.fly.dev/media",
+        content_type="audio/x-mulaw;rate=8000"
+    )
+    vr.append(start)
+
+    # Optional: play last GPT response if available
+    audio_path = get_last_audio_for_call("fallback")  # or set up proper fallback
+    if audio_path and os.path.exists(audio_path):
+        ulaw_filename = os.path.basename(audio_path)
+        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print(f"✅ Replayed audio from GET: {ulaw_filename}")
+    else:
+        print("⚠️ No fallback audio found for GET")
+
+    vr.pause(length=5)
+    vr.redirect("/")
+    return Response(content=str(vr), media_type="application/xml")
     
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
