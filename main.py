@@ -188,15 +188,15 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
-# ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-if call_sid not in session_memory or "user_transcript" not in session_memory[call_sid]:
-    print("🟡 No user transcript found ➜ using default greeting.")
-    gpt_input = "Hello"
-    gpt_text = "Hello, how can I help you today?"
-else:
-    gpt_input = session_memory[call_sid]["user_transcript"]
-    print(f"📝 GPT input candidate: \"{gpt_input}\"")
-    gpt_text = await get_gpt_response(gpt_input)
+    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    if call_sid not in session_memory or "user_transcript" not in session_memory[call_sid]:
+        print("🟡 No user transcript found ➜ using default greeting.")
+        gpt_input = "Hello"
+        gpt_text = "Hello, how can I help you today?"
+    else:
+        gpt_input = session_memory[call_sid]["user_transcript"]
+        print(f"📝 GPT input candidate: \"{gpt_input}\"")
+        gpt_text = await get_gpt_response(gpt_input)
 
 # ✅ Ensure call_sid exists in session_memory (for saving later)
 session_memory.setdefault(call_sid, {})
