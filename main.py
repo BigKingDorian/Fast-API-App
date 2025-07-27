@@ -198,8 +198,8 @@ async def twilio_voice_webhook(request: Request):
         print(f"📝 GPT input candidate: \"{gpt_input}\"")
         gpt_text = await get_gpt_response(gpt_input)
 
-# ✅ Ensure call_sid exists in session_memory (for saving later)
-session_memory.setdefault(call_sid, {})
+    # ✅ Ensure call_sid exists in session_memory (for saving later)
+    session_memory.setdefault(call_sid, {})
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
