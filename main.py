@@ -285,14 +285,17 @@ async def twilio_voice_webhook(request: Request):
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
         
     vr.pause(length=7)
-    # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
+
+    await asyncio.sleep(1)
+    
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
     
