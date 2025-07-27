@@ -251,8 +251,12 @@ async def twilio_voice_webhook(request: Request):
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
 
-    save_transcript(call_sid, gpt_text, converted_path)
-    print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+    # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
+    if len(audio_bytes) > 2000:
+        save_transcript(call_sid, gpt_text, converted_path)
+        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+    else:
+        print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
     # ✅ Small delay for file availability on disk
     await asyncio.sleep(4)
