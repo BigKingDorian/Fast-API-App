@@ -19,6 +19,8 @@ INSTANCE = (
     or os.uname().nodename         # last-resort fallback
 )
 
+print(f"🆔 This app instance ID is: {INSTANCE}")
+
 # Configure the root logger
 logging.basicConfig(
     level=logging.INFO,
@@ -49,10 +51,11 @@ session_memory = {}
 def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-        
+        log(f"🆕 Initialized session_memory for call {call_sid}")
+ 
     if user_transcript:
         session_memory[call_sid]["user_transcript"] = user_transcript
-        log(f"💾 Transcript saved for {call_sid}: \"{user_transcript}\"")
+        log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
         
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
@@ -61,13 +64,21 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None):
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
     if data and "user_transcript" in data:
+        log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
         return data["user_transcript"]
     else:
+        log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
         return "Hello, what can I help you with?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
-    return data["audio_path"] if data and "audio_path" in data else None
+
+    if data and "audio_path" in data:
+        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
+        return data["audio_path"]
+    else:
+        logging.error(f"❌ No audio path found for {call_sid} in session memory.")
+        return None
 
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
@@ -124,6 +135,9 @@ async def print_gpt_response(sentence: str):
     
     # Step 3: Save audio to file
     audio_bytes = audio_response.content
+
+    if not audio_bytes:
+    print("❌ No audio data returned from ElevenLabs!")
     
     # 👇 Make unique filename with UUID
     unique_id = str(uuid.uuid4())
@@ -135,10 +149,17 @@ async def print_gpt_response(sentence: str):
     print(f"💾 Saving audio to {file_path}")
     
     os.makedirs("static/audio", exist_ok=True)
-    with open(file_path, "wb") as f:  # ✅ use dynamic path
-        f.write(audio_bytes)
-        print("✅ Audio file saved at:", file_path)
-        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+
+    try:
+        with open(file_path, "wb") as f:
+            f.write(audio_bytes)
+            print("✅ Audio file saved at:", file_path)
+            print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+    except Exception as e:
+        print(f"❌ Failed to write audio file: {e}")
+        raise
+        
+    print(f"🔁 Waiting for converted file: {converted_path}")
         
     for _ in range(10):  # wait up to 5 seconds
         if os.path.exists(converted_path):
@@ -265,6 +286,8 @@ async def twilio_voice_webhook(request: Request):
     )
     vr.append(start)
 
+    log("📡 Starting Deepgram stream to WebSocket endpoint")
+
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
@@ -305,41 +328,62 @@ async def twilio_voice_redirect():
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
+    log("📡 Re-appended Deepgram stream in GET route")
 
     # Optional: short pause for safety
     vr.pause(length=1)
+    log("⏸️ Inserted 1-second pause before redirect")
 
     # Redirect back to POST route for next prompt-response loop
     vr.redirect("/", method="POST")  # Switch back to POST loop
+    log("🔁 Redirecting to POST route for next interaction")
 
     return Response(content=str(vr), media_type="application/xml")
     
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
     await ws.accept()
-    print("★ Twilio WebSocket connected")
+    log("★ Twilio WebSocket connected")
 
     async def sender():
         dg_connection_started = False
         try:
             while True:
                 raw = await ws.receive_text()
-
+                log("🔉 Received raw media event (text length = %d)", len(raw))
+                # You can also parse and inspect if needed
         except Exception as e:
-            await ws.close(code=1011)          
+            log("❌ Sender loop error: %s", e)
+            await ws.close(code=1011)
+            log("🔌 WebSocket closed with code 1011 due to error in sender()")
 
     call_sid_holder = {"sid": None}
     
-    loop = asyncio.get_running_loop()
-    deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-    dg_connection = None
+    try:
+        loop = asyncio.get_running_loop()
+        log("🔄 Async loop acquired")
+    except Exception as e:
+        log("❌ Failed to get asyncio loop: %s", e)
+        raise
 
+    try:
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+        log("🧠 Deepgram client initialized")
+    except Exception as e:
+        log("❌ Failed to initialize Deepgram client: %s", e)
+        raise
+
+    dg_connection = None  # You might want to log later when it gets set
+    
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
 
         try:
             live_client = deepgram.listen.live
+            print("🧠 Acquired Deepgram live client")
+            
             dg_connection = await asyncio.to_thread(live_client.v, "1")
+            print("✅ Deepgram connection established (version 1)")
         except Exception as e:
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
@@ -348,6 +392,7 @@ async def media_stream(ws: WebSocket):
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
+                
                 result = kwargs.get("result") or (args[0] if args else None)
                 metadata = kwargs.get("metadata")
 
@@ -355,17 +400,32 @@ async def media_stream(ws: WebSocket):
                     print("⚠️ No result received.")
                     return
 
-                print("📂 Type of result:", type(result))
-
+                print(f"🧾 Transcript result: {result}")
+                if metadata:
+                    print(f"🗂️ Transcript metadata: {metadata}")
+            except Exception as e:
+                print(f"❌ Error inside on_transcript: {e}")
+                
                 if hasattr(result, "to_dict"):
-                    payload = result.to_dict()
-                    print(json.dumps(payload, indent=2))
-
                     try:
+                        payload = result.to_dict()
+                        print("📦 Deepgram Payload:")
+                        print(json.dumps(payload, indent=2))
+                    except Exception as e:
+                        print(f"❌ Failed to convert result to dict: {e}")
+                        return
+
+                try:
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0)
-
+                        print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
+                    except Exception as e:
+                        print(f"❌ Error extracting transcript/confidence from payload: {e}")
+                        return
+                else:
+                    print("⚠️ Result object has no to_dict() method")
+                    
                         if sentence and confidence > 0.6:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             sid = call_sid_holder["sid"]
