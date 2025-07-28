@@ -137,18 +137,18 @@ async def print_gpt_response(sentence: str):
     audio_bytes = audio_response.content
 
     if not audio_bytes:
-    print("❌ No audio data returned from ElevenLabs!")
+        print("❌ No audio data returned from ElevenLabs!")
     
-    # 👇 Make unique filename with UUID
-    unique_id = str(uuid.uuid4())
-    filename = f"response_{unique_id}.wav"
-    file_path = f"static/audio/{filename}"
-    converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+        # 👇 Make unique filename with UUID
+        unique_id = str(uuid.uuid4())
+        filename = f"response_{unique_id}.wav"
+        file_path = f"static/audio/{filename}"
+        converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
 
-    print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
-    print(f"💾 Saving audio to {file_path}")
+        print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
+        print(f"💾 Saving audio to {file_path}")
     
-    os.makedirs("static/audio", exist_ok=True)
+        os.makedirs("static/audio", exist_ok=True)
 
     try:
         with open(file_path, "wb") as f:
