@@ -415,7 +415,7 @@ async def media_stream(ws: WebSocket):
                         print(f"❌ Failed to convert result to dict: {e}")
                         return
 
-                try:
+                    try:
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0)
