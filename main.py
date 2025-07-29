@@ -422,8 +422,8 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"❌ Error extracting transcript/confidence from payload: {e}")
                         return
-                else:
-                    print("⚠️ Result object has no to_dict() method")
+                    else:
+                        print("⚠️ Result object has no to_dict() method")
                     
                         if sentence and confidence > 0.6:
                             print(f"📝 {sentence} (confidence: {confidence})")
