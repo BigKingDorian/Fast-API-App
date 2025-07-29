@@ -424,7 +424,8 @@ async def media_stream(ws: WebSocket):
                         return
                     else:
                         print("⚠️ Result object has no to_dict() method")
-                    
+                        
+                    try:
                         if sentence and confidence > 0.6:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             sid = call_sid_holder["sid"]
