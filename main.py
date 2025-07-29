@@ -392,7 +392,6 @@ async def media_stream(ws: WebSocket):
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
-                
                 result = kwargs.get("result") or (args[0] if args else None)
                 metadata = kwargs.get("metadata")
 
