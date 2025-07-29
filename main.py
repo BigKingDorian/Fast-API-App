@@ -308,7 +308,7 @@ async def twilio_voice_webhook(request: Request):
         vr.say("Sorry, something went wrong.")
         
     vr.pause(length=7)
-    vr.redirect("/")
+    vr.redirect("/", method="GET")
 
     await asyncio.sleep(1)
     
