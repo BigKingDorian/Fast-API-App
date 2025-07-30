@@ -294,7 +294,7 @@ async def twilio_voice_webhook(request: Request):
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.3)
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
