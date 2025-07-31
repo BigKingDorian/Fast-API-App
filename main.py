@@ -183,7 +183,7 @@ async def twilio_voice_webhook(request: Request):
 
         audio_bytes = elevenlabs_response.content
 
-        await asycio.sleep(0.5)
+        await asyncio.sleep(0.5)
     
         # ✅ Failure check with print statements
         if not audio_bytes or elevenlabs_response.status_code != 200:
