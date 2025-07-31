@@ -180,6 +180,15 @@ async def twilio_voice_webhook(request: Request):
           f"bytes {len(elevenlabs_response.content)}")
 
     audio_bytes = elevenlabs_response.content
+    
+    # ✅ Failure check with print statements
+    if not audio_bytes or elevenlabs_response.status_code != 200:
+        print("❌ ElevenLabs failed or returned empty audio!")
+        print("🔁 GPT Text:", gpt_text)
+        print("🛑 Status:", elevenlabs_response.status_code)
+        print("📜 Response:", elevenlabs_response.text)
+        return Response("Audio generation failed.", status_code=500)
+        
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
