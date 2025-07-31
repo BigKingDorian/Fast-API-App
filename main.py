@@ -1,4 +1,3 @@
-import logging
 import os
 import json
 import base64
@@ -11,22 +10,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
-
-# Detect which VM / container you’re on
-INSTANCE = (
-    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (present in production)
-    or os.getenv("HOSTNAME")       # Docker / Kubernetes fallback
-    or os.uname().nodename         # last-resort fallback
-)
-
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format=f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
-
-log = logging.getLogger("app").info     # quick alias → use log(...)
 
 # ✅ Load .env before any getenv calls
 from dotenv import load_dotenv
@@ -49,14 +32,10 @@ session_memory = {}
 def save_transcript(call_sid, transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-        
     if transcript:
         session_memory[call_sid]["transcript"] = transcript
-        log(f"💾 Transcript saved for {call_sid}: \"{transcript}\"")
-        
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
-        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
@@ -114,6 +93,8 @@ async def print_gpt_response(sentence: str):
         }
     )
 
+    print("🧪 ElevenLabs status:", audio_response.status_code)
+    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
@@ -145,43 +126,15 @@ async def print_gpt_response(sentence: str):
         time.sleep(0.5)
     else:
         print("❌ File still not found after 5 seconds!")
-
-class VerboseStaticFiles(StaticFiles):
-    async def get_response(self, path: str, scope):
-        #Build full URL
-        scheme   = scope.get("scheme", "http")
-        host     = dict(scope["headers"]).get(b"host", b"-").decode()
-        full_url = f"{scheme}://{host}{scope['path']}"
-
-        abs_path = os.path.abspath(os.path.join(self.directory, path))
-        exists   = os.path.exists(abs_path)
-        readable = os.access(abs_path, os.R_OK)
-
-        log(
-            f"📂 Static GET {path!r} → exists={exists} "
-            f"readable={readable} size={os.path.getsize(abs_path) if exists else '—'}"
-        )
-
-        if not exists:
-            try:
-                parent = os.path.dirname(abs_path)
-                log("📑 Dir listing: %s", os.listdir(parent))
-            except Exception as e:
-                log("⚠️ Could not list directory: %s", e)
-
-        return await super().get_response(path, scope)
-
+        
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
-app.mount("/static", VerboseStaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
     print("\n📞 ── [POST] Twilio webhook hit ───────────────────────────────────")
     form_data = await request.form()
-
-    print(f"FORM DATA: {form_data}")
-    
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
@@ -200,7 +153,6 @@ async def twilio_voice_webhook(request: Request):
         gpt_text = "Hello, how can I help you today?"
     else:
         gpt_text = await get_gpt_response(gpt_input)
-
         print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
@@ -233,20 +185,13 @@ async def twilio_voice_webhook(request: Request):
         "/usr/bin/ffmpeg", "-y", "-i", file_path,
         "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
     ], check=True)
-    
-    for _ in range(10):  # wait up to 5 seconds
-        if os.path.exists(converted_path):
-            break
-        await asyncio.sleep(0.5)
-
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
-    log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
 
     save_transcript(call_sid, gpt_text, converted_path)
     print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
 
     # ✅ Small delay for file availability on disk
-    await asyncio.sleep(4)
+    await asyncio.sleep(1)
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
@@ -263,11 +208,11 @@ async def twilio_voice_webhook(request: Request):
     audio_path = None
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        print(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
@@ -276,8 +221,8 @@ async def twilio_voice_webhook(request: Request):
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-        
-    vr.pause(length=3)
+
+    vr.pause(length=10)
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
@@ -287,15 +232,6 @@ async def twilio_voice_webhook(request: Request):
 async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
-
-    async def sender():
-        dg_connection_started = False
-        try:
-            while True:
-                raw = await ws.receive_text()
-
-        except Exception as e:
-            await ws.close(code=1011)          
 
     call_sid_holder = {"sid": None}
     
@@ -336,12 +272,68 @@ async def media_stream(ws: WebSocket):
                             print(f"📝 {sentence}")
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
-                                log(f"🎙️ Deepgram transcript saved: {sentence}")
-                    except Exception as e:
-                        print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
-                        
+
+                            async def gpt_and_audio_pipeline(text):
+                                response = await get_gpt_response(text)
+                                print(f"🤖 GPT: {response}")
+
+                                try:
+                                    audio_response = requests.post(
+                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                        headers={
+                                            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                                            "Content-Type": "application/json"
+                                        },
+                                        json={
+                                            "text": response,
+                                            "model_id": "eleven_flash_v2_5",
+                                            "voice_settings": {
+                                                "stability": 0.5,
+                                                "similarity_boost": 0.75
+                                            }
+                                        }
+                                    )
+                                    audio_bytes = audio_response.content
+                                    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+
+                                    unique_id = uuid.uuid4().hex
+                                    filename = f"response_{unique_id}.wav"
+                                    file_path = f"static/audio/{filename}"
+                                    with open(file_path, "wb") as f:
+                                        f.write(audio_bytes)
+                                        print(f"✅ Audio saved to {file_path}")
+
+                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                    subprocess.run([
+                                        "/usr/bin/ffmpeg",
+                                        "-y",
+                                        "-i", file_path,
+                                        "-ar", "8000",
+                                        "-ac", "1",
+                                        "-c:a", "pcm_mulaw",
+                                        converted_path
+                                    ], check=True)
+                                    
+                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
+
+                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+         
+                                except Exception as audio_e:
+                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+
+                            loop.create_task(gpt_and_audio_pipeline(sentence))
+
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                else:
+                    print("🔍 Available attributes:", dir(result))
+                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                    print(result.__dict__)
+
             except Exception as e:
-                print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
+                print(f"⚠️ Error handling transcript: {e}")
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
@@ -353,13 +345,10 @@ async def media_stream(ws: WebSocket):
             punctuate=True,
         )
         print("✏️ LiveOptions being sent:", options.__dict__)
+        dg_connection.start(options)
+        print("✅ Deepgram connection started")
 
-               # -------------------------------------------------
-        # 3.  SENDER LOOP  (Twilio → Deepgram passthrough)
-        # -------------------------------------------------
         async def sender():
-            dg_connection_started = False          # NEW flag
-
             while True:
                 try:
                     raw = await ws.receive_text()
@@ -380,26 +369,28 @@ async def media_stream(ws: WebSocket):
                 event = msg.get("event")
 
                 if event == "start":
-                    ...
-                    # (unchanged ‘start’ handling code)
-                    ...
+                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
+
+                    # Debug print to inspect what Twilio actually sent
+                    print("🧾 Twilio start event data:", json.dumps(msg["start"], indent=2))
+
+                    # Try all possible keys Twilio might send
+                    sid = (
+                        msg["start"].get("callSid") or
+                        msg["start"].get("CallSid") or
+                        msg["start"].get("callerSid") or
+                        msg["start"].get("CallerSid")
+                    )
+
+                    call_sid_holder["sid"] = sid
+                    print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
 
                 elif event == "media":
                     print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
-
-                        # ---------- LAZY-START ----------
-                        if not dg_connection_started:
-                            dg_connection.start(options)
-                            dg_connection_started = True
-                            print("✅ Deepgram stream officially started "
-                                  "after receiving media.")
-                        # ---------------------------------
-
                         dg_connection.send(payload)
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram "
-                              "(event: media)")
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
@@ -423,5 +414,5 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-
+        
 
