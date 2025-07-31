@@ -261,36 +261,11 @@ async def twilio_voice_webhook(request: Request):
         vr.say("Sorry, something went wrong.")
         
     vr.pause(length=7)
-    vr.redirect("/", method="GET")
+    vr.redirect("/")
 
     await asyncio.sleep(1)
     
     print("📝 Returning TwiML to Twilio (with redirect).")
-    return Response(content=str(vr), media_type="application/xml")
-
-@app.get("/")
-async def twilio_voice_redirect():
-    print("📞 [GET] Twilio redirect hit")
-
-    vr = VoiceResponse()
-
-    # Optional: Start stream again if you're using GET to reinitialize it
-    start = Start()
-    start.stream(
-        url="wss://silent-sound-1030.fly.dev/media",
-        content_type="audio/x-mulaw;rate=8000"
-    )
-    vr.append(start)
-    log("📡 Re-appended Deepgram stream in GET route")
-
-    # Optional: short pause for safety
-    vr.pause(length=1)
-    log("⏸️ Inserted 1-second pause before redirect")
-
-    # Redirect back to POST route for next prompt-response loop
-    vr.redirect("/", method="POST")  # Switch back to POST loop
-    log("🔁 Redirecting to POST route for next interaction")
-
     return Response(content=str(vr), media_type="application/xml")
     
 @app.websocket("/media")
