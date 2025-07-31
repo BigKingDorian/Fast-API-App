@@ -87,6 +87,23 @@ if not OPENAI_API_KEY:
 if not ELEVENLABS_API_KEY:
     raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
+def elevenlabs_tts(text: str) -> bytes:
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code != 200:
+        print(f"⛔ ElevenLabs TTS failed: {response.status_code} - {response.text}")
+        return b""
+    return response.content
+    
 # ✅ Create the OpenAI client after loading the env
 client = OpenAI(api_key=OPENAI_API_KEY)
 
