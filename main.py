@@ -306,7 +306,7 @@ async def media_stream(ws: WebSocket):
         print("⚙️ Connecting to Deepgram live transcription...")
         live_client = deepgram.listen.live
         dg_connection = await asyncio.to_thread(live_client.v, "1")
-        print("✅ Deepgram connection established (version 1)"
+        print("✅ Deepgram connection established (version 1)")
               
         def on_transcript(*args, **kwargs):
             try:
