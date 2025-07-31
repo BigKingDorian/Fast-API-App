@@ -164,37 +164,41 @@ async def twilio_voice_webhook(request: Request):
     session_memory.setdefault(call_sid, {})
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    elevenlabs_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-        headers={
-            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-            "Content-Type": "application/json"
-        },
-        json={
-            "text": gpt_text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-    )
-    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-          f"bytes {len(elevenlabs_response.content)}")
+    MAX_RETRIES = 2
+    for attempt in range(MAX_RETRIES):
+        elevenlabs_response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+            headers={
+                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": gpt_text,
+                "model_id": "eleven_flash_v2_5",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
+        )
+        print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+            f"bytes {len(elevenlabs_response.content)}")
 
-    audio_bytes = elevenlabs_response.content
+        audio_bytes = elevenlabs_response.content
+
+        await asycio.sleep(0.5)
     
-    # ✅ Failure check with print statements
-    if not audio_bytes or elevenlabs_response.status_code != 200:
-        print("❌ ElevenLabs failed or returned empty audio!")
-        print("🔁 GPT Text:", gpt_text)
-        print("🛑 Status:", elevenlabs_response.status_code)
-        print("📜 Response:", elevenlabs_response.text)
-        return Response("Audio generation failed.", status_code=500)
+        # ✅ Failure check with print statements
+        if not audio_bytes or elevenlabs_response.status_code != 200:
+            print("❌ ElevenLabs failed or returned empty audio!")
+            print("🔁 GPT Text:", gpt_text)
+            print("🛑 Status:", elevenlabs_response.status_code)
+            print("📜 Response:", elevenlabs_response.text)
+            return Response("Audio generation failed.", status_code=500)
         
-    unique_id = uuid.uuid4().hex
-    file_path = f"static/audio/response_{unique_id}.wav"
+        unique_id = uuid.uuid4().hex
+        file_path = f"static/audio/response_{unique_id}.wav"
 
-    with open(file_path, "wb") as f:
-        f.write(audio_bytes)
-    print(f"💾 Saved original WAV → {file_path}")
+        with open(file_path, "wb") as f:
+            f.write(audio_bytes)
+        print(f"💾 Saved original WAV → {file_path}")
 
     # ✅ Save the audio path to session_memory
     session_memory.setdefault(call_sid, {})  # Ensure the dict exists
