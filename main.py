@@ -19,8 +19,6 @@ INSTANCE = (
     or os.uname().nodename         # last-resort fallback
 )
 
-print(f"🆔 This app instance ID is: {INSTANCE}")
-
 # Configure the root logger
 logging.basicConfig(
     level=logging.INFO,
@@ -48,37 +46,25 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 # Simple in-memory session store
 session_memory = {}
 
-def save_transcript(call_sid, user_transcript=None, audio_path=None):
+def save_transcript(call_sid, transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-        log(f"🆕 Initialized session_memory for call {call_sid}")
-
-    if user_transcript:
-        session_memory[call_sid]["user_transcript"] = user_transcript
-        log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
-
+        
+    if transcript:
+        session_memory[call_sid]["transcript"] = transcript
+        log(f"💾 Transcript saved for {call_sid}: \"{transcript}\"")
+        
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
-
+        
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
-    if data and "user_transcript" in data:
-        log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
-        return data["user_transcript"]
-    else:
-        log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
-        return "Hello, what can I help you with?"
+    return data["transcript"] if data else "Hello, what can I help you with?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
-
-    if data and "audio_path" in data:
-        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
-        return data["audio_path"]
-    else:
-        logging.error(f"❌ No audio path found for {call_sid} in session memory.")
-        return None
+    return data["audio_path"] if data and "audio_path" in data else None
 
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
@@ -110,6 +96,55 @@ async def get_gpt_response(user_text: str) -> str:
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
     print(f"🤖 GPT: {response}")
+
+    # ✅ Send GPT response to ElevenLabs
+    audio_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ✅ Fixed: use f-string
+        headers={
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": response,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+    )
+
+    print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
+    
+    # Step 3: Save audio to file
+    audio_bytes = audio_response.content
+    
+    # 👇 Make unique filename with UUID
+    unique_id = str(uuid.uuid4())
+    filename = f"response_{unique_id}.wav"
+    file_path = f"static/audio/{filename}"
+    converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+
+    print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
+    print(f"💾 Saving audio to {file_path}")
+    
+    os.makedirs("static/audio", exist_ok=True)
+    with open(file_path, "wb") as f:  # ✅ use dynamic path
+        f.write(audio_bytes)
+        print("✅ Audio file saved at:", file_path)
+        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+        
+    for _ in range(10):  # wait up to 5 seconds
+        if os.path.exists(converted_path):
+            print("✅ File exists for playback:", converted_path)
+            break
+        print("⌛ Waiting for file to become available...")
+        time.sleep(0.5)
+    else:
+        print("❌ File still not found after 5 seconds!")
 
 class VerboseStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
@@ -146,100 +181,72 @@ async def twilio_voice_webhook(request: Request):
     form_data = await request.form()
 
     print(f"FORM DATA: {form_data}")
-
+    
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    if call_sid not in session_memory or "user_transcript" not in session_memory[call_sid]:
-        print(f"⚠️ Transcript missing ➜ call_sid = {call_sid}")
-        print(f"🔍 session_memory[{call_sid}] = {session_memory.get(call_sid)}")
-        print("🟡 No user transcript found ➜ using default greeting.")
-        gpt_input = "Hello"
+    gpt_input = get_last_transcript_for_this_call(call_sid)
+    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+
+    fallback_phrases = {
+        "", "hello", "hi",
+        "hello, what can i help you with?",
+        "[gpt failed to respond]",
+    }
+    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
+        print("🚫 No real transcript yet ➜ using default greeting.")
         gpt_text = "Hello, how can I help you today?"
     else:
-        gpt_input = session_memory[call_sid]["user_transcript"]
-        print(f"📝 GPT input candidate: \"{gpt_input}\"")
         gpt_text = await get_gpt_response(gpt_input)
 
-    # ✅ Ensure call_sid exists in session_memory (for saving later)
-    session_memory.setdefault(call_sid, {})
+        print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    MAX_RETRIES = 2
-    for attempt in range(MAX_RETRIES):
-        elevenlabs_response = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-            headers={
-                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                "Content-Type": "application/json"
-            },
-            json={
-                "text": gpt_text,
-                "model_id": "eleven_flash_v2_5",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
-        )
-        print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-            f"bytes {len(elevenlabs_response.content)}")
+    elevenlabs_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }
+    )
+    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+          f"bytes {len(elevenlabs_response.content)}")
 
-        audio_bytes = elevenlabs_response.content
+    audio_bytes = elevenlabs_response.content
+    unique_id = uuid.uuid4().hex
+    file_path = f"static/audio/response_{unique_id}.wav"
 
-        await asyncio.sleep(0.5)
-
-        # ✅ Failure check with print statements
-        if not audio_bytes or elevenlabs_response.status_code != 200:
-            print("❌ ElevenLabs failed or returned empty audio!")
-            print("🔁 GPT Text:", gpt_text)
-            print("🛑 Status:", elevenlabs_response.status_code)
-            print("📜 Response:", elevenlabs_response.text)
-            return Response("Audio generation failed.", status_code=500)
-
-        unique_id = uuid.uuid4().hex
-        file_path = f"static/audio/response_{unique_id}.wav"
-
-        with open(file_path, "wb") as f:
-            f.write(audio_bytes)
-        print(f"💾 Saved original WAV → {file_path}")
-
-    # ✅ Save the audio path to session_memory
-    session_memory.setdefault(call_sid, {})  # Ensure the dict exists
-    print(f"📝 Saving audio_path for {call_sid}")
-    session_memory.setdefault(call_sid, {})  # Ensure dict
-    session_memory[call_sid]["audio_path"] = file_path
-    log(f"🧠 Session memory updated with audio path for {call_sid}: {file_path}")
-    log(f"🧠 session_memory now: {json.dumps(session_memory.get(call_sid), indent=2)}")
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+    print(f"💾 Saved original WAV → {file_path}")
 
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
-    try:
-        subprocess.run([
-            "/usr/bin/ffmpeg", "-y", "-i", file_path,
-            "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
-        ], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ FFmpeg failed: {e}")
-        return Response("Audio conversion failed", status_code=500)
-    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
-    # ✅ Wait for file to become available (race condition guard)
-    for i in range(40):
-        if os.path.isfile(converted_path):
-            print(f"✅ Found converted file after {i * 0.1:.1f}s")
+    subprocess.run([
+        "/usr/bin/ffmpeg", "-y", "-i", file_path,
+        "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+    ], check=True)
+    
+    for _ in range(10):  # wait up to 5 seconds
+        if os.path.exists(converted_path):
             break
-        await asyncio.sleep(0.1)
-    else:
-        print("❌ Converted file never appeared — aborting")
-        return Response("Converted audio not available", status_code=500)
+        await asyncio.sleep(0.5)
+
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
-    log("✅ Audio file saved at %s", converted_path)
-    # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
-    if len(audio_bytes) > 2000:
-        save_transcript(call_sid, audio_path=converted_path)
-        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
-    else:
-        print("⚠️ Skipping transcript/audio save due to likely blank response.")
+    log("✅ Audio file saved at %s", converted_path)          # ← NEW tagged line
+
+    save_transcript(call_sid, gpt_text, converted_path)
+    print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+
+    # ✅ Small delay for file availability on disk
+    await asyncio.sleep(4)
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
@@ -252,35 +259,27 @@ async def twilio_voice_webhook(request: Request):
     )
     vr.append(start)
 
-    log("📡 Starting Deepgram stream to WebSocket endpoint")
-
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
-        
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
-        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
-        
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(2)
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-
-    vr.pause(length=7)
+        
+    vr.pause(length=3)
+    # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
-
-    await asyncio.sleep(1)
-
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
     
@@ -289,140 +288,140 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+    async def sender():
+        dg_connection_started = False
+        try:
+            while True:
+                raw = await ws.receive_text()
+
+        except Exception as e:
+            await ws.close(code=1011)          
+
     call_sid_holder = {"sid": None}
-    dg_connection_started = False
+    
+    loop = asyncio.get_running_loop()
+    deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+    dg_connection = None
 
-    # ✅ Deepgram client setup
     try:
-        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-        print("🧠 Deepgram client initialized")
-        live_client = deepgram.listen.live
-        dg_connection = live_client.v("1")
-        print("✅ Deepgram v1 stream ready")
-    except Exception as e:
-        print(f"⛔ Deepgram connection error: {e}")
-        await ws.close()
-        return
+        print("⚙️ Connecting to Deepgram live transcription...")
 
-    # ✅ GPT + TTS Pipeline
-    async def generate_and_store_response(sid, user_text):
         try:
-            print(f"💬 Sending to GPT: {user_text}")
-            response = await get_gpt_response(user_text)
-            print(f"🤖 GPT Response: {response}")
-
-            # Save to session memory
-            session_memory.setdefault(sid, {})
-            session_memory[sid]["gpt_response"] = response
-
-            audio_bytes = elevenlabs_tts(response)
-            if not audio_bytes or len(audio_bytes) < 2000:
-                print("⚠️ Skipping TTS: empty or too short")
-                return
-
-            # Save raw WAV file
-            unique_id = str(uuid.uuid4())[:8]
-            file_path = f"static/audio/gpt_response_{unique_id}.wav"
-            with open(file_path, "wb") as f:
-                f.write(audio_bytes)
-            print(f"💾 Saved raw WAV to {file_path}")
-
-            # Convert to 8kHz μ-law
-            converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
-            subprocess.run([
-                "/usr/bin/ffmpeg", "-y", "-i", file_path,
-                "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
-            ], check=True)
-            print(f"🎛️ Converted to μ-law: {converted_path}")
-
-            # Save path to session memory
-            session_memory[sid]["audio_path"] = converted_path
-            print(f"🧠 Updated session_memory[{sid}] with audio_path")
-
+            live_client = deepgram.listen.live
+            dg_connection = await asyncio.to_thread(live_client.v, "1")
         except Exception as e:
-            print(f"❌ Error in GPT→TTS pipeline: {e}")
+            print(f"⛔ Failed to create Deepgram connection: {e}")
+            await ws.close()
+            return
 
-    # ✅ Transcript handler
-    def on_transcript(*args, **kwargs):
-        try:
-            result = kwargs.get("result") or (args[0] if args else None)
-            if not result:
-                print("⚠️ No result object in transcript")
-                return
-
-            payload = result.to_dict()
-            alt = payload["channel"]["alternatives"][0]
-            sentence = alt.get("transcript", "")
-            confidence = alt.get("confidence", 0.0)
-
-            print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
-
-            sid = call_sid_holder.get("sid")
-            if sid and sentence and confidence > 0.6:
-                session_memory.setdefault(sid, {})
-                session_memory[sid]["user_transcript"] = sentence
-                print(f"💾 Saved transcript for {sid}: {sentence}")
-                # Call GPT + TTS async
-                asyncio.create_task(generate_and_store_response(sid, sentence))
-            else:
-                print(f"⚠️ Ignored low-confidence or empty transcript: \"{sentence}\"")
-
-        except Exception as e:
-            print(f"❌ Error in on_transcript: {e}")
-
-    # ✅ Bind Deepgram event
-    dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-    print("🔗 Transcript callback bound")
-
-    # ✅ Handle incoming messages
-    while True:
-        try:
-            raw = await ws.receive_text()
-        except WebSocketDisconnect:
-            print("✖️ Twilio WebSocket disconnected")
-            break
-        except Exception as e:
-            print(f"❌ Error receiving message: {e}")
-            break
-
-        try:
-            msg = json.loads(raw)
-            event = msg.get("event")
-        except json.JSONDecodeError as e:
-            print(f"⚠️ JSON decode error: {e}")
-            continue
-
-        if event == "start":
-            call_sid = msg.get("start", {}).get("callSid")
-            call_sid_holder["sid"] = call_sid
-            print(f"📞 WebSocket start event — call_sid: {call_sid}")
-
-        elif event == "media":
-            print("📡 Media event received")
+        def on_transcript(*args, **kwargs):
             try:
-                payload = base64.b64decode(msg["media"]["payload"])
+                print("📥 RAW transcript event:")
+                result = kwargs.get("result") or (args[0] if args else None)
+                metadata = kwargs.get("metadata")
 
-                if not dg_connection_started:
-                    dg_connection.start({
-                        "punctuate": True,
-                        "interim_results": False,
-                    })
-                    dg_connection_started = True
-                    print("✅ Deepgram stream officially started")
+                if result is None:
+                    print("⚠️ No result received.")
+                    return
 
-                dg_connection.send(payload)
-                print(f"📦 Sent {len(payload)} bytes to Deepgram")
+                print("📂 Type of result:", type(result))
+
+                if hasattr(result, "to_dict"):
+                    payload = result.to_dict()
+                    print(json.dumps(payload, indent=2))
+
+                    try:
+                        sentence = payload["channel"]["alternatives"][0]["transcript"]
+                        if sentence:
+                            print(f"📝 {sentence}")
+                            if call_sid_holder["sid"]:
+                                save_transcript(call_sid_holder["sid"], sentence)
+                                log(f"🎙️ Deepgram transcript saved: {sentence}")
+                    except Exception as e:
+                        print(f"⚠️ Error parsing transcript: {e}")  # ✅ ← Add this
+                        
             except Exception as e:
-                print(f"❌ Error sending to Deepgram: {e}")
+                print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
 
-        elif event == "stop":
-            print("⏹️ Twilio stream stopped")
-            break
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
-    # ✅ Clean up
-    try:
-        dg_connection.finish()
-        print("🔚 Deepgram stream finished cleanly")
+        options = LiveOptions(
+            model="nova-3",
+            language="en-US",
+            encoding="mulaw",
+            sample_rate=8000,
+            punctuate=True,
+        )
+        print("✏️ LiveOptions being sent:", options.__dict__)
+
+               # -------------------------------------------------
+        # 3.  SENDER LOOP  (Twilio → Deepgram passthrough)
+        # -------------------------------------------------
+        async def sender():
+            dg_connection_started = False          # NEW flag
+
+            while True:
+                try:
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    print("✖️ Twilio WebSocket disconnected")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Unexpected error receiving message: {e}")
+                    break
+
+                try:
+                    msg = json.loads(raw)
+                    print("📩 Incoming message:", msg.get("event"))
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decode error: {e}")
+                    continue
+
+                event = msg.get("event")
+
+                if event == "start":
+                    ...
+                    # (unchanged ‘start’ handling code)
+                    ...
+
+                elif event == "media":
+                    print("📡 Media event received")
+                    try:
+                        payload = base64.b64decode(msg["media"]["payload"])
+
+                        # ---------- LAZY-START ----------
+                        if not dg_connection_started:
+                            dg_connection.start(options)
+                            dg_connection_started = True
+                            print("✅ Deepgram stream officially started "
+                                  "after receiving media.")
+                        # ---------------------------------
+
+                        dg_connection.send(payload)
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram "
+                              "(event: media)")
+                    except Exception as e:
+                        print(f"⚠️ Error sending to Deepgram: {e}")
+
+                elif event == "stop":
+                    print("⏹ Stream stopped by Twilio")
+                    break
+
+        await sender()
+
     except Exception as e:
-        print(f"⚠️ Error finishing Deepgram stream: {e}")
-        
+        print(f"⛔ Deepgram error: {e}")
+
+    finally:
+        if dg_connection:
+            try:
+                dg_connection.finish()
+            except Exception as e:
+                print(f"⚠️ Error closing Deepgram connection: {e}")
+        try:
+            await ws.close()
+        except Exception as e:
+            print(f"⚠️ Error closing WebSocket: {e}")
+        print("✅ Connection closed")
+
+
