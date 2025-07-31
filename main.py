@@ -149,9 +149,12 @@ async def twilio_voice_webhook(request: Request):
     
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     if call_sid not in session_memory or "user_transcript" not in session_memory[call_sid]:
+        print(f"⚠️ Transcript missing ➜ call_sid = {call_sid}")
+        print(f"🔍 session_memory[{call_sid}] = {session_memory.get(call_sid)}")
         print("🟡 No user transcript found ➜ using default greeting.")
         gpt_input = "Hello"
         gpt_text = "Hello, how can I help you today?"
@@ -201,9 +204,10 @@ async def twilio_voice_webhook(request: Request):
         print(f"💾 Saved original WAV → {file_path}")
 
     # ✅ Save the audio path to session_memory
-    session_memory.setdefault(call_sid, {})  # Ensure the dict exists
+    print(f"📝 Saving audio_path for {call_sid}")
+    session_memory.setdefault(call_sid, {})  # Ensure dict
     session_memory[call_sid]["audio_path"] = file_path
-    log(f"🧠 Session memory updated with audio path for {call_sid}: {file_path}")
+    log(f"🧠 session_memory now: {json.dumps(session_memory.get(call_sid), indent=2)}")
     
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
@@ -251,7 +255,10 @@ async def twilio_voice_webhook(request: Request):
     audio_path = None
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
+        
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
+        
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -367,7 +374,11 @@ async def media_stream(ws: WebSocket):
                                 if sid not in session_memory:
                                     session_memory[sid] = {}
                                 session_memory[sid]["user_transcript"] = sentence
-                                log(f"💾 User transcript saved for {sid}: \"{sentence}\"")
+                                log(f"💾 Saving user transcript for {sid}: \"{sentence}\"")
+                                log(f"🧠 session_memory before saving: {session_memory.get(sid)}")
+                                session_memory[sid]["user_transcript"] = sentence
+                                log(f"🧠 session_memory after saving: {session_memory.get(sid)}")
+
                         else:
                             print(f"⚠️ Ignored sentence due to low confidence: \"{sentence}\" (confidence: {confidence})")
 
