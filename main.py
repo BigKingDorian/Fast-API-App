@@ -290,107 +290,139 @@ async def media_stream(ws: WebSocket):
     print("★ Twilio WebSocket connected")
 
     call_sid_holder = {"sid": None}
+    dg_connection_started = False
 
-    def on_transcript(*args, **kwargs):
-        try:
-            result = kwargs.get("result") or (args[0] if args else None)
-            metadata = kwargs.get("metadata")
-
-            if not result:
-                print("⚠️ No result received.")
-                return
-
-            print(f"🧾 Transcript result: {result}")
-            if metadata:
-                print(f"🗂️ Transcript metadata: {metadata}")
-
-            if hasattr(result, "to_dict"):
-                payload = result.to_dict()
-                print("📦 Deepgram Payload:")
-                print(json.dumps(payload, indent=2))
-
-                alt = payload["channel"]["alternatives"][0]
-                sentence = alt.get("transcript", "")
-                confidence = alt.get("confidence", 0)
-
-                print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
-
-                sid = call_sid_holder.get("sid")
-                if sid and sentence and confidence > 0.6:
-                    session_memory.setdefault(sid, {})
-                    session_memory[sid]["user_transcript"] = sentence
-                    print(f"💾 Saved user_transcript for {sid}: \"{sentence}\"")
-                else:
-                    print(f"⚠️ Ignored transcript (sid={sid}): \"{sentence}\"")
-            else:
-                print("⚠️ result has no to_dict()")
-        except Exception as e:
-            print(f"❌ Error in on_transcript: {e}")
-
-    async def sender():
-        dg_connection_started = False
-
-        while True:
-            try:
-                raw = await ws.receive_text()
-            except WebSocketDisconnect:
-                print("✖️ Twilio WebSocket disconnected")
-                break
-            except Exception as e:
-                print(f"⚠️ Unexpected error receiving message: {e}")
-                break
-
-            try:
-                msg = json.loads(raw)
-                event = msg.get("event")
-                print(f"📩 Incoming message: {event}")
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON decode error: {e}")
-                continue
-
-            if event == "start":
-                call_sid = msg.get("start", {}).get("callSid")
-                call_sid_holder["sid"] = call_sid
-                print(f"📞 WebSocket start event — call_sid: {call_sid}")
-
-            elif event == "media":
-                print("📡 Media event received")
-                try:
-                    payload = base64.b64decode(msg["media"]["payload"])
-
-                    if not dg_connection_started:
-                        dg_connection.start(options)
-                        dg_connection_started = True
-                        print("✅ Deepgram stream officially started")
-
-                    dg_connection.send(payload)
-                    print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
-                except Exception as e:
-                    print(f"⚠️ Error sending to Deepgram: {e}")
-
-            elif event == "stop":
-                print("⏹ Stream stopped by Twilio")
-                break
-
+    # ✅ Deepgram client setup
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         print("🧠 Deepgram client initialized")
-
         live_client = deepgram.listen.live
-        dg_connection = live_client.v("1")  # ❗️NO asyncio.to_thread
-
-        options = {
-            "punctuate": True,
-            "interim_results": False,
-        }
-
-        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        print("🔗 Transcript callback bound")
-
+        dg_connection = live_client.v("1")
+        print("✅ Deepgram v1 stream ready")
     except Exception as e:
-        print(f"⛔ Failed to initialize Deepgram connection: {e}")
+        print(f"⛔ Deepgram connection error: {e}")
         await ws.close()
         return
 
-    await sender()
-    
+    # ✅ GPT + TTS Pipeline
+    async def generate_and_store_response(sid, user_text):
+        try:
+            print(f"💬 Sending to GPT: {user_text}")
+            response = await get_gpt_response(user_text)
+            print(f"🤖 GPT Response: {response}")
+
+            # Save to session memory
+            session_memory.setdefault(sid, {})
+            session_memory[sid]["gpt_response"] = response
+
+            audio_bytes = elevenlabs_tts(response)
+            if not audio_bytes or len(audio_bytes) < 2000:
+                print("⚠️ Skipping TTS: empty or too short")
+                return
+
+            # Save raw WAV file
+            unique_id = str(uuid.uuid4())[:8]
+            file_path = f"static/audio/gpt_response_{unique_id}.wav"
+            with open(file_path, "wb") as f:
+                f.write(audio_bytes)
+            print(f"💾 Saved raw WAV to {file_path}")
+
+            # Convert to 8kHz μ-law
+            converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+            subprocess.run([
+                "/usr/bin/ffmpeg", "-y", "-i", file_path,
+                "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+            ], check=True)
+            print(f"🎛️ Converted to μ-law: {converted_path}")
+
+            # Save path to session memory
+            session_memory[sid]["audio_path"] = converted_path
+            print(f"🧠 Updated session_memory[{sid}] with audio_path")
+
+        except Exception as e:
+            print(f"❌ Error in GPT→TTS pipeline: {e}")
+
+    # ✅ Transcript handler
+    def on_transcript(*args, **kwargs):
+        try:
+            result = kwargs.get("result") or (args[0] if args else None)
+            if not result:
+                print("⚠️ No result object in transcript")
+                return
+
+            payload = result.to_dict()
+            alt = payload["channel"]["alternatives"][0]
+            sentence = alt.get("transcript", "")
+            confidence = alt.get("confidence", 0.0)
+
+            print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
+
+            sid = call_sid_holder.get("sid")
+            if sid and sentence and confidence > 0.6:
+                session_memory.setdefault(sid, {})
+                session_memory[sid]["user_transcript"] = sentence
+                print(f"💾 Saved transcript for {sid}: {sentence}")
+                # Call GPT + TTS async
+                asyncio.create_task(generate_and_store_response(sid, sentence))
+            else:
+                print(f"⚠️ Ignored low-confidence or empty transcript: \"{sentence}\"")
+
+        except Exception as e:
+            print(f"❌ Error in on_transcript: {e}")
+
+    # ✅ Bind Deepgram event
+    dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+    print("🔗 Transcript callback bound")
+
+    # ✅ Handle incoming messages
+    while True:
+        try:
+            raw = await ws.receive_text()
+        except WebSocketDisconnect:
+            print("✖️ Twilio WebSocket disconnected")
+            break
+        except Exception as e:
+            print(f"❌ Error receiving message: {e}")
+            break
+
+        try:
+            msg = json.loads(raw)
+            event = msg.get("event")
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON decode error: {e}")
+            continue
+
+        if event == "start":
+            call_sid = msg.get("start", {}).get("callSid")
+            call_sid_holder["sid"] = call_sid
+            print(f"📞 WebSocket start event — call_sid: {call_sid}")
+
+        elif event == "media":
+            print("📡 Media event received")
+            try:
+                payload = base64.b64decode(msg["media"]["payload"])
+
+                if not dg_connection_started:
+                    dg_connection.start({
+                        "punctuate": True,
+                        "interim_results": False,
+                    })
+                    dg_connection_started = True
+                    print("✅ Deepgram stream officially started")
+
+                dg_connection.send(payload)
+                print(f"📦 Sent {len(payload)} bytes to Deepgram")
+            except Exception as e:
+                print(f"❌ Error sending to Deepgram: {e}")
+
+        elif event == "stop":
+            print("⏹️ Twilio stream stopped")
+            break
+
+    # ✅ Clean up
+    try:
+        dg_connection.finish()
+        print("🔚 Deepgram stream finished cleanly")
+    except Exception as e:
+        print(f"⚠️ Error finishing Deepgram stream: {e}")
+        
