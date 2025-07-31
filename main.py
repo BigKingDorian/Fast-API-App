@@ -170,17 +170,30 @@ async def twilio_voice_webhook(request: Request):
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
     
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    if call_sid not in session_memory or "user_transcript" not in session_memory[call_sid]:
-        print(f"⚠️ Transcript missing ➜ call_sid = {call_sid}")
-        print(f"🔍 session_memory[{call_sid}] = {session_memory.get(call_sid)}")
-        print("🟡 No user transcript found ➜ using default greeting.")
-        gpt_input = "Hello"
-        gpt_text = "Hello, how can I help you today?"
+    audio_path = get_last_audio_for_call(call_sid)
+    if audio_path and os.path.exists(audio_path):
+        print("✅ Found existing audio — skipping GPT + TTS.")
     else:
-        gpt_input = session_memory[call_sid]["user_transcript"]
-        print(f"📝 GPT input candidate: \"{gpt_input}\"")
-        gpt_text = await get_gpt_response(gpt_input)
-
+        print("⚠️ No stored audio found. Using default greeting.")
+        gpt_text = "Hello, how can I help you today?"
+    
+        # 🔁 Do ElevenLabs TTS just once as fallback
+        elevenlabs_response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+            headers={
+                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": gpt_text,
+                "model_id": "eleven_flash_v2_5",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
+        )
+        audio_bytes = elevenlabs_response.content
+        ...
+        save_transcript(call_sid, audio_path=converted_path)
+        
     # ✅ Ensure call_sid exists in session_memory (for saving later)
     session_memory.setdefault(call_sid, {})
 
