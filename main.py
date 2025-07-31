@@ -187,6 +187,11 @@ async def twilio_voice_webhook(request: Request):
         f.write(audio_bytes)
     print(f"💾 Saved original WAV → {file_path}")
 
+    # ✅ Save the audio path to session_memory
+    session_memory.setdefault(call_sid, {})  # Ensure the dict exists
+    session_memory[call_sid]["audio_path"] = file_path
+    log(f"🧠 Session memory updated with audio path for {call_sid}: {file_path}")
+
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
     subprocess.run([
