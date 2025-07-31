@@ -110,66 +110,7 @@ async def get_gpt_response(user_text: str) -> str:
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
     print(f"🤖 GPT: {response}")
-
-    # ✅ Send GPT response to ElevenLabs
-    audio_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ✅ Fixed: use f-string
-        headers={
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "application/json"
-        },
-        json={
-            "text": response,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
-    )
-
-    print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
-    print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
-    print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
-    print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
     
-    # Step 3: Save audio to file
-    audio_bytes = audio_response.content
-
-    if not audio_bytes:
-        print("❌ No audio data returned from ElevenLabs!")
-    
-        # 👇 Make unique filename with UUID
-        unique_id = str(uuid.uuid4())
-        filename = f"response_{unique_id}.wav"
-        file_path = f"static/audio/{filename}"
-        converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
-
-        print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
-        print(f"💾 Saving audio to {file_path}")
-    
-        os.makedirs("static/audio", exist_ok=True)
-
-    try:
-        with open(file_path, "wb") as f:
-            f.write(audio_bytes)
-            print("✅ Audio file saved at:", file_path)
-            print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-    except Exception as e:
-        print(f"❌ Failed to write audio file: {e}")
-        raise
-        
-    print(f"🔁 Waiting for converted file: {converted_path}")
-        
-    for _ in range(10):  # wait up to 5 seconds
-        if os.path.exists(converted_path):
-            print("✅ File exists for playback:", converted_path)
-            break
-        print("⌛ Waiting for file to become available...")
-        time.sleep(0.5)
-    else:
-        print("❌ File still not found after 5 seconds!")
-
 class VerboseStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         #Build full URL
