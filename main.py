@@ -288,110 +288,57 @@ async def twilio_voice_webhook(request: Request):
 async def media_stream(ws: WebSocket):
     await ws.accept()
     log("★ Twilio WebSocket connected")
-
-    async def sender():
-        dg_connection_started = False
-        try:
-            while True:
-                raw = await ws.receive_text()
-                log("🔉 Received raw media event (text length = %d)", len(raw))
-                # You can also parse and inspect if needed
-        except Exception as e:
-            log("❌ Sender loop error: %s", e)
-            await ws.close(code=1011)
-            log("🔌 WebSocket closed with code 1011 due to error in sender()")
-
     call_sid_holder = {"sid": None}
-
     try:
         loop = asyncio.get_running_loop()
         log("🔄 Async loop acquired")
     except Exception as e:
         log("❌ Failed to get asyncio loop: %s", e)
         raise
-
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         log("🧠 Deepgram client initialized")
     except Exception as e:
         log("❌ Failed to initialize Deepgram client: %s", e)
         raise
-
-    dg_connection = None  # You might want to log later when it gets set
-
+    dg_connection = None
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
-
-        try:
-            live_client = deepgram.listen.live
-            print("🧠 Acquired Deepgram live client")
-
-            dg_connection = await asyncio.to_thread(live_client.v, "1")
-            print("✅ Deepgram connection established (version 1)")
-        except Exception as e:
-            print(f"⛔ Failed to create Deepgram connection: {e}")
-            await ws.close()
-            return
-
+        live_client = deepgram.listen.live
+        dg_connection = await asyncio.to_thread(live_client.v, "1")
+        print("✅ Deepgram connection established (version 1)"
+              
         def on_transcript(*args, **kwargs):
             try:
-                print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
                 metadata = kwargs.get("metadata")
-
-                if result is None:
+                if not result:
                     print("⚠️ No result received.")
                     return
-
                 print(f"🧾 Transcript result: {result}")
                 if metadata:
                     print(f"🗂️ Transcript metadata: {metadata}")
-            except Exception as e:
-                print(f"❌ Error inside on_transcript: {e}")
-
                 if hasattr(result, "to_dict"):
-                    try:
-                        payload = result.to_dict()
-                        print("📦 Deepgram Payload:")
-                        print(json.dumps(payload, indent=2))
-                    except Exception as e:
-                        print(f"❌ Failed to convert result to dict: {e}")
-                        return
-
-                    try:
-                        alt = payload["channel"]["alternatives"][0]
-                        sentence = alt.get("transcript", "")
-                        confidence = alt.get("confidence", 0)
-                        print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
-                    except Exception as e:
-                        print(f"❌ Error extracting transcript/confidence from payload: {e}")
-                        return
+                    payload = result.to_dict()
+                    print("📦 Deepgram Payload:")
+                    print(json.dumps(payload, indent=2))
+                    alt = payload["channel"]["alternatives"][0]
+                    sentence = alt.get("transcript", "")
+                    confidence = alt.get("confidence", 0)
+                    print(f"🗣️ Transcript: \"{sentence}\" (Confidence: {confidence})")
+                    if sentence and confidence > 0.6:
+                        sid = call_sid_holder["sid"]
+                        if sid:
+                            session_memory.setdefault(sid, {})
+                            session_memory[sid]["user_transcript"] = sentence
+                            print(f"💾 Saved user_transcript for {sid}: \"{sentence}\"")
                     else:
-                        print("⚠️ Result object has no to_dict() method")
-
-                    try:
-                        if sentence and confidence > 0.6:
-                            print(f"📝 {sentence} (confidence: {confidence})")
-                            sid = call_sid_holder["sid"]
-                            if sid:
-                                if sid not in session_memory:
-                                    session_memory[sid] = {}
-                                session_memory[sid]["user_transcript"] = sentence
-                                log(f"💾 User transcript saved for {sid}: \"{sentence}\"")
-                                log(f"💾 Saving user transcript for {sid}: \"{sentence}\"")
-                                log(f"🧠 session_memory before saving: {session_memory.get(sid)}")
-                                session_memory[sid]["user_transcript"] = sentence
-                                log(f"🧠 session_memory after saving: {session_memory.get(sid)}")
-
-                        else:
-                            print(f"⚠️ Ignored sentence due to low confidence: \"{sentence}\" (confidence: {confidence})")
-
-                    except Exception as e:
-                        print(f"⚠️ Error parsing transcript: {e}")
-
+                        print(f"⚠️ Ignored low-confidence or empty transcript: \"{sentence}\"")
+                else:
+                    print("⚠️ result has no to_dict()")
             except Exception as e:
-                print(f"⚠️ Error in on_transcript: {e}")  # ✅ ← Add this too
-
+                print(f"❌ Error in on_transcript: {e}")
+                
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
