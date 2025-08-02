@@ -51,18 +51,32 @@ session_memory = {}
 def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
+        log(f"🆕 Initialized session_memory for call {call_sid}")
     if user_transcript:
         session_memory[call_sid]["user_transcript"] = user_transcript
+        log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
+        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
-    return data["user_transcript"] if data else "Hello, what can I help you with?"
+    if data and "user_transcript" in data:
+        log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
+        return data["user_transcript"]
+    else:
+        log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
+        return "Hello, what can I help you with?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
-    return data["audio_path"] if data and "audio_path" in data else None
+
+    if data and "audio_path" in data:
+        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
+        return data["audio_path"]
+    else:
+        logging.error(f"❌ No audio path found for {call_sid} in session memory.")
+        return None
 
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
