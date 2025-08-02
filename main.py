@@ -315,48 +315,48 @@ async def media_stream(ws: WebSocket):
                                 save_transcript(call_sid_holder["sid"], sentence)
 
                             async def gpt_and_audio_pipeline(text):
-                                response = await get_gpt_response(text)
-                                print(f"🤖 GPT: {response}")
-                                
-                                unique_id = uuid.uuid4().hex
-                                filename = f"response_{unique_id}.wav"
-                                file_path = f"static/audio/{filename}"
-                                with open(file_path, "wb") as f:
-                                    f.write(audio_bytes)
-                                    print(f"✅ Audio saved to {file_path}")
-
-                                converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                                subprocess.run([
-                                    "/usr/bin/ffmpeg",
-                                    "-y",
-                                    "-i", file_path,
-                                    "-ar", "8000",
-                                    "-ac", "1",
-                                    "-c:a", "pcm_mulaw",
-                                    converted_path
-                                ], check=True)
+                                try:
+                                    response = await get_gpt_response(text)
+                                    print(f"🤖 GPT: {response}")
                                     
-                                print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
+                                    unique_id = uuid.uuid4().hex
+                                    filename = f"response_{unique_id}.wav"
+                                    file_path = f"static/audio/{filename}"
+                                    with open(file_path, "wb") as f:
+                                        f.write(audio_bytes)
+                                        print(f"✅ Audio saved to {file_path}")
 
-                                print(f"🎛️ Converted audio saved at: {converted_path}")
-                                save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-         
-                            except Exception as audio_e:
-                                print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                    subprocess.run([
+                                        "/usr/bin/ffmpeg",
+                                        "-y",
+                                        "-i", file_path,
+                                        "-ar", "8000",
+                                        "-ac", "1",
+                                        "-c:a", "pcm_mulaw",
+                                        converted_path
+                                    ], check=True)
+                                        
+                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
-                        loop.create_task(gpt_and_audio_pipeline(sentence))
+                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+                                except Exception as audio_e:
+                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
-                except Exception as inner_e:
-                    print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-            else:
-                print("🔍 Available attributes:", dir(result))
-                print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                print(result.__dict__)
+                            loop.create_task(gpt_and_audio_pipeline(sentence))
 
-        except Exception as e:
-            print(f"⚠️ Error handling transcript: {e}")
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                else:
+                    print("🔍 Available attributes:", dir(result))
+                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                    print(result.__dict__)
 
+            except Exception as e:
+                print(f"⚠️ Error handling transcript: {e}")
+                
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
