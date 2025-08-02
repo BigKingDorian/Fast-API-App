@@ -108,30 +108,6 @@ async def get_gpt_response(user_text: str) -> str:
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
     print(f"🤖 GPT: {response}")
-
-    # ✅ Send GPT response to ElevenLabs
-    audio_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",  # ✅ Fixed: use f-string
-        headers={
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "application/json"
-        },
-        json={
-            "text": response,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
-    )
-
-    print("🧪 ElevenLabs status:", audio_response.status_code)
-    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
-    print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
-    print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
-    print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
-    print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
     
     # Step 3: Save audio to file
     audio_bytes = audio_response.content
@@ -226,6 +202,13 @@ async def twilio_voice_webhook(request: Request):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
         }
     )
+    
+    print("🧪 ElevenLabs status:", audio_response.status_code)
+    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
+    print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
     print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
           f"bytes {len(elevenlabs_response.content)}")
 
@@ -334,26 +317,7 @@ async def media_stream(ws: WebSocket):
                             async def gpt_and_audio_pipeline(text):
                                 response = await get_gpt_response(text)
                                 print(f"🤖 GPT: {response}")
-
-                                try:
-                                    audio_response = requests.post(
-                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                                        headers={
-                                            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                                            "Content-Type": "application/json"
-                                        },
-                                        json={
-                                            "text": response,
-                                            "model_id": "eleven_flash_v2_5",
-                                            "voice_settings": {
-                                                "stability": 0.5,
-                                                "similarity_boost": 0.75
-                                            }
-                                        }
-                                    )
-                                    audio_bytes = audio_response.content
-                                    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
-
+                                
                                     unique_id = uuid.uuid4().hex
                                     filename = f"response_{unique_id}.wav"
                                     file_path = f"static/audio/{filename}"
