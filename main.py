@@ -345,17 +345,17 @@ async def media_stream(ws: WebSocket):
                             except Exception as audio_e:
                                 print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
-                            loop.create_task(gpt_and_audio_pipeline(sentence))
+                        loop.create_task(gpt_and_audio_pipeline(sentence))
 
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                else:
-                    print("🔍 Available attributes:", dir(result))
-                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(result.__dict__)
+                except Exception as inner_e:
+                    print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+            else:
+                print("🔍 Available attributes:", dir(result))
+                print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                print(result.__dict__)
 
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
+        except Exception as e:
+            print(f"⚠️ Error handling transcript: {e}")
 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
