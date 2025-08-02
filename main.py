@@ -48,17 +48,17 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 # Simple in-memory session store
 session_memory = {}
 
-def save_transcript(call_sid, transcript=None, audio_path=None):
+def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-    if transcript:
+    if user_transcript:
         session_memory[call_sid]["transcript"] = transcript
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
         
 def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
-    return data["transcript"] if data else "Hello, what can I help you with?"
+    return data["user_transcript"] if data else "Hello, what can I help you with?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -286,7 +286,7 @@ async def media_stream(ws: WebSocket):
                     print(json.dumps(payload, indent=2))
 
                     try:
-                        sentence = payload["channel"]["alternatives"][0]["transcript"]
+                        sentence = payload["channel"]["alternatives"][0]["user_transcript"]
                         if sentence:
                             print(f"📝 {sentence}")
                             if call_sid_holder["sid"]:
