@@ -160,6 +160,31 @@ async def print_gpt_response(sentence: str):
     else:
         print("❌ File still not found after 5 seconds!")
         
+class VerboseStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        #Build full URL
+        scheme   = scope.get("scheme", "http")
+        host     = dict(scope["headers"]).get(b"host", b"-").decode()
+        full_url = f"{scheme}://{host}{scope['path']}"
+
+        abs_path = os.path.abspath(os.path.join(self.directory, path))
+        exists   = os.path.exists(abs_path)
+        readable = os.access(abs_path, os.R_OK)
+
+        log(
+            f"📂 Static GET {path!r} → exists={exists} "
+            f"readable={readable} size={os.path.getsize(abs_path) if exists else '—'}"
+        )
+
+        if not exists:
+            try:
+                parent = os.path.dirname(abs_path)
+                log("📑 Dir listing: %s", os.listdir(parent))
+            except Exception as e:
+                log("⚠️ Could not list directory: %s", e)
+
+        return await super().get_response(path, scope)
+        
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
