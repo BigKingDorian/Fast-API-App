@@ -318,32 +318,32 @@ async def media_stream(ws: WebSocket):
                                 response = await get_gpt_response(text)
                                 print(f"🤖 GPT: {response}")
                                 
-                                    unique_id = uuid.uuid4().hex
-                                    filename = f"response_{unique_id}.wav"
-                                    file_path = f"static/audio/{filename}"
-                                    with open(file_path, "wb") as f:
-                                        f.write(audio_bytes)
-                                        print(f"✅ Audio saved to {file_path}")
+                                unique_id = uuid.uuid4().hex
+                                filename = f"response_{unique_id}.wav"
+                                file_path = f"static/audio/{filename}"
+                                with open(file_path, "wb") as f:
+                                    f.write(audio_bytes)
+                                    print(f"✅ Audio saved to {file_path}")
 
-                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                                    subprocess.run([
-                                        "/usr/bin/ffmpeg",
-                                        "-y",
-                                        "-i", file_path,
-                                        "-ar", "8000",
-                                        "-ac", "1",
-                                        "-c:a", "pcm_mulaw",
-                                        converted_path
-                                    ], check=True)
+                                converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                subprocess.run([
+                                    "/usr/bin/ffmpeg",
+                                    "-y",
+                                    "-i", file_path,
+                                    "-ar", "8000",
+                                    "-ac", "1",
+                                    "-c:a", "pcm_mulaw",
+                                    converted_path
+                                ], check=True)
                                     
-                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
+                                print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
-                                    print(f"🎛️ Converted audio saved at: {converted_path}")
-                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+                                print(f"🎛️ Converted audio saved at: {converted_path}")
+                                save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
          
-                                except Exception as audio_e:
-                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                            except Exception as audio_e:
+                                print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
                             loop.create_task(gpt_and_audio_pipeline(sentence))
 
