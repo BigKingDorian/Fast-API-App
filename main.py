@@ -171,6 +171,7 @@ async def twilio_voice_webhook(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     gpt_input = get_last_transcript_for_this_call(call_sid)
