@@ -203,12 +203,12 @@ async def twilio_voice_webhook(request: Request):
         }
     )
     
-    print("🧪 ElevenLabs status:", audio_response.status_code)
-    print("🧪 ElevenLabs content type:", audio_response.headers.get("Content-Type")) 
-    print("🛰️ ElevenLabs Status Code:", audio_response.status_code)
-    print("🛰️ ElevenLabs Content-Type:", audio_response.headers.get("Content-Type"))
-    print("🛰️ ElevenLabs Response Length:", len(audio_response.content), "bytes")
-    print("🛰️ ElevenLabs Content (first 500 bytes):", audio_response.content[:500])
+    print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
     print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
           f"bytes {len(elevenlabs_response.content)}")
 
