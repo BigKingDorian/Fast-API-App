@@ -233,17 +233,32 @@ async def twilio_voice_webhook(request: Request):
         
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
-    subprocess.run([
-        "/usr/bin/ffmpeg", "-y", "-i", file_path,
-        "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
-    ], check=True)
+    try:
+        subprocess.run([
+            "/usr/bin/ffmpeg", "-y", "-i", file_path,
+            "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ FFmpeg failed: {e}")
+        return Response("Audio conversion failed", status_code=500)
+    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+    # ✅ Wait for file to become available (race condition guard)
+    for i in range(40):
+        if os.path.isfile(converted_path):
+            print(f"✅ Found converted file after {i * 0.1:.1f}s")
+            break
+        await asyncio.sleep(0.1)
+    else:
+        print("❌ Converted file never appeared — aborting")
+        return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
-
-    save_transcript(call_sid, gpt_text, converted_path)
-    print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
-
-    # ✅ Small delay for file availability on disk
-    await asyncio.sleep(1)
+    log("✅ Audio file saved at %s", converted_path)
+    # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
+    if len(audio_bytes) > 2000:
+        save_transcript(call_sid, audio_path=converted_path)
+        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+    else:
+        print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
