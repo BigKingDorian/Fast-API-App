@@ -271,11 +271,14 @@ async def twilio_voice_webhook(request: Request):
     )
     vr.append(start)
 
+    log("📡 Starting Deepgram stream to WebSocket endpoint")
+
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
-        print(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -284,6 +287,7 @@ async def twilio_voice_webhook(request: Request):
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
