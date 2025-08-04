@@ -344,7 +344,7 @@ async def media_stream(ws: WebSocket):
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
 
-                           async def gpt_and_audio_pipeline(text):
+                        async def gpt_and_audio_pipeline(text):
                             try:
                                 response = await get_gpt_response(text)
                                 print(f"🤖 GPT: {response}")
