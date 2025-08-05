@@ -66,7 +66,7 @@ def get_last_transcript_for_this_call(call_sid):
         return data["user_transcript"]
     else:
         log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
-        return "Hello?"
+        return "Hello, how can i assist you today?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -94,7 +94,7 @@ async def get_gpt_response(user_text: str) -> str:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Your name is Lotus. If anyone says Hello you must tell them your name and help them learn how to gain profitability with AI intergration. Your job is to help business find ways to automate their services with AI."},
+                {"role": "system", "content": "Your name is Lotus. Your job is to answer general questions and help business find ways to automate their services with AI."},
                 {"role": "user", "content": user_text}
             ]
         )
@@ -292,9 +292,7 @@ async def twilio_voice_webhook(request: Request):
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-
-    vr.pause(2)
-
+        
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
