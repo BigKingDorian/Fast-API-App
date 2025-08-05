@@ -407,16 +407,7 @@ async def media_stream(ws: WebSocket):
                                         print(f"⚠️ Error with ElevenLabs or FFmpeg: {audio_e}")
 
                                 loop.create_task(gpt_and_audio_pipeline(sentence))
-
-                            else:
-                                print(f"⚠️ Skipped low-confidence or too-short transcript: \"{sentence}\" (confidence {confidence:.2f})")
-
-
-                                loop.create_task(gpt_and_audio_pipeline(sentence))
-
-                        except Exception as inner_e:
-                            print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                            
+                                
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
