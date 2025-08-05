@@ -416,14 +416,7 @@ async def media_stream(ws: WebSocket):
 
                         except Exception as inner_e:
                             print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                    else:
-                        print("🔍 Available attributes:", dir(result))
-                        print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                        print(result.__dict__)
-
-                except Exception as e:
-                    print(f"⚠️ Error handling transcript: {e}")
-                
+                            
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
