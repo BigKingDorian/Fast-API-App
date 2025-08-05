@@ -255,8 +255,7 @@ async def twilio_voice_webhook(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        session_memory[call_sid]["audio_path"] = converted_path
-        print(f"💾 Only saved audio path for call {call_sid}")
+        save_transcript(call_sid, gpt_text, converted_path)
         
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
