@@ -337,12 +337,23 @@ async def media_stream(ws: WebSocket):
                     print(json.dumps(payload, indent=2))
 
                     try:
-                        sentence = payload["channel"]["alternatives"][0]["transcript"]
+                        alt = payload["channel"]["alternatives"][0]
+                        sentence = alt.get("transcript", "")
+                        confidence = alt.get("confidence", 0.0)
+
                         if sentence:
-                            print(f"📝 {sentence}")
+                            print(f"📝 {sentence} (confidence: {confidence})")
+                            last_input_time["ts"] = time.time()
+                            last_transcript["text"] = sentence
+                            last_transcript["confidence"] = confidence
+
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
-
+                                
+                                # ✅ Mark the session as ready for playback in the POST route
+                                session_memory[call_sid_holder["sid"]]["ready"] = True
+                                print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
+                                
                             async def gpt_and_audio_pipeline(text):
                                 try:
                                     response = await get_gpt_response(text)
@@ -392,9 +403,7 @@ async def media_stream(ws: WebSocket):
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-
-                            loop.create_task(gpt_and_audio_pipeline(sentence))
-
+                                    
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
@@ -417,7 +426,19 @@ async def media_stream(ws: WebSocket):
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
+        
+        async def monitor_user_done():
+            while not finished["done"]:
+                await asyncio.sleep(0.5)
+                elapsed = time.time() - last_input_time["ts"]
+                if elapsed > 2.0 and last_transcript["confidence"] >= 0.85:
+                    print(f"🛑 No input for {elapsed:.1f}s and high confidence ➜ user is done.")
+                    finished["done"] = True
+                    await gpt_and_audio_pipeline(last_transcript["text"])
+                    break
 
+        loop.create_task(monitor_user_done())
+        
         async def sender():
             while True:
                 try:
@@ -454,12 +475,16 @@ async def media_stream(ws: WebSocket):
 
                     call_sid_holder["sid"] = sid
                     print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
-
+                    last_input_time = {"ts": time.time(2.0)}
+                    last_transcript = {"text": "", "confidence": 0.5}
+                    finished = {"done": False}
+                    
                 elif event == "media":
                     print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
+                        last_input_time["ts"] = time.time()
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
