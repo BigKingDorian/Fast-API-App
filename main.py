@@ -353,76 +353,76 @@ async def media_stream(ws: WebSocket):
 
                                 async def gpt_and_audio_pipeline(text):
                                     try:
-                                    response = await get_gpt_response(text)
-                                    print(f"🤖 GPT: {response}")
+                                        response = await get_gpt_response(text)
+                                        print(f"🤖 GPT: {response}")
 
-                                    # 🔊 Generate audio from ElevenLabs
-                                    elevenlabs_response = requests.post(
-                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                                        headers={
-                                            "xi-api-key": ELEVENLABS_API_KEY,
-                                            "Content-Type": "application/json"
-                                        },
-                                        json={
-                                            "text": response,
-                                            "model_id": "eleven_flash_v2_5",
-                                            "voice_settings": {
-                                                "stability": 0.5,
-                                                "similarity_boost": 0.75
+                                        # 🔊 Generate audio from ElevenLabs
+                                        elevenlabs_response = requests.post(
+                                            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                            headers={
+                                                "xi-api-key": ELEVENLABS_API_KEY,
+                                                "Content-Type": "application/json"
+                                            },
+                                            json={
+                                                "text": response,
+                                                "model_id": "eleven_flash_v2_5",
+                                                "voice_settings": {
+                                                    "stability": 0.5,
+                                                    "similarity_boost": 0.75
+                                                }
                                             }
-                                        }
-                                    )
+                                        )
 
-                                    audio_bytes = elevenlabs_response.content
+                                        audio_bytes = elevenlabs_response.content
 
-                                    # 💾 Save original audio
-                                    unique_id = uuid.uuid4().hex
-                                    filename = f"response_{unique_id}.wav"
-                                    file_path = f"static/audio/{filename}"
+                                        # 💾 Save original audio
+                                        unique_id = uuid.uuid4().hex
+                                        filename = f"response_{unique_id}.wav"
+                                        file_path = f"static/audio/{filename}"
 
-                                    os.makedirs("static/audio", exist_ok=True)
-                                    with open(file_path, "wb") as f:
-                                        f.write(audio_bytes)
-                                        print(f"✅ Audio saved to {file_path}")
+                                        os.makedirs("static/audio", exist_ok=True)
+                                        with open(file_path, "wb") as f:
+                                            f.write(audio_bytes)
+                                            print(f"✅ Audio saved to {file_path}")
 
-                                    # 🔁 Convert with FFmpeg
-                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                                    subprocess.run([
-                                        "/usr/bin/ffmpeg",
-                                        "-y",
-                                        "-i", file_path,
-                                        "-ar", "8000",
-                                        "-ac", "1",
-                                        "-c:a", "pcm_mulaw",
-                                        converted_path
-                                    ], check=True)
+                                        # 🔁 Convert with FFmpeg
+                                        converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                        subprocess.run([
+                                            "/usr/bin/ffmpeg",
+                                            "-y",
+                                            "-i", file_path,
+                                            "-ar", "8000",
+                                            "-ac", "1",
+                                            "-c:a", "pcm_mulaw",
+                                            converted_path
+                                        ], check=True)
 
-                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                        print(f"🎛️ Converted audio saved at: {converted_path}")
 
-                                    # 🧠 Save to session
-                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+                                        # 🧠 Save to session
+                                        save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                        print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
 
-                                except Exception as audio_e:
-                                    print(f"⚠️ Error with ElevenLabs or FFmpeg: {audio_e}")
+                                    except Exception as audio_e:
+                                        print(f"⚠️ Error with ElevenLabs or FFmpeg: {audio_e}")
 
-                            loop.create_task(gpt_and_audio_pipeline(sentence))
+                                loop.create_task(gpt_and_audio_pipeline(sentence))
 
-                        else:
-                            print(f"⚠️ Skipped low-confidence or too-short transcript: \"{sentence}\" (confidence {confidence:.2f})")
+                            else:
+                                print(f"⚠️ Skipped low-confidence or too-short transcript: \"{sentence}\" (confidence {confidence:.2f})")
 
 
-                            loop.create_task(gpt_and_audio_pipeline(sentence))
+                                loop.create_task(gpt_and_audio_pipeline(sentence))
 
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                else:
-                    print("🔍 Available attributes:", dir(result))
-                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(result.__dict__)
+                        except Exception as inner_e:
+                            print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                    else:
+                        print("🔍 Available attributes:", dir(result))
+                        print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                        print(result.__dict__)
 
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
+                except Exception as e:
+                    print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
