@@ -94,7 +94,7 @@ async def get_gpt_response(user_text: str) -> str:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Your name is Lotus. Your job is to help business find ways to automate their services with AI."},
+                {"role": "system", "content": "Your name is Lotus. If anyone says Hello you must tell them your name and help them learn how to gain profitability with AI intergration. Your job is to help business find ways to automate their services with AI."},
                 {"role": "user", "content": user_text}
             ]
         )
