@@ -66,7 +66,7 @@ def get_last_transcript_for_this_call(call_sid):
         return data["user_transcript"]
     else:
         log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
-        return "Hello, this is Lotus AI, how can I help you automate your business?"
+        return "Hello?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
