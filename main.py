@@ -339,23 +339,53 @@ async def media_stream(ws: WebSocket):
 
                     try:
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
-                        if sentence:
-                            print(f"📝 {sentence}")
+                        confidence = payload["channel"]["alternatives"][0].get("confidence", 0.0)
+
+                        if (
+                            sentence
+                            and confidence >= 0.6
+                            and len(sentence.strip().split()) >= 3
+                        ):
+                            print(f"📝 Accepted: \"{sentence}\" (confidence {confidence:.2f})")
+    
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
 
-                            async def gpt_and_audio_pipeline(text):
-                                try:
+                                async def gpt_and_audio_pipeline(text):
+                                    try:
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
-                                    
+
+                                    # 🔊 Generate audio from ElevenLabs
+                                    elevenlabs_response = requests.post(
+                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                        headers={
+                                            "xi-api-key": ELEVENLABS_API_KEY,
+                                            "Content-Type": "application/json"
+                                        },
+                                        json={
+                                            "text": response,
+                                            "model_id": "eleven_flash_v2_5",
+                                            "voice_settings": {
+                                                "stability": 0.5,
+                                                "similarity_boost": 0.75
+                                            }
+                                        }
+                                    )
+
+                                    audio_bytes = elevenlabs_response.content
+
+                                    # 💾 Save original audio
                                     unique_id = uuid.uuid4().hex
                                     filename = f"response_{unique_id}.wav"
                                     file_path = f"static/audio/{filename}"
+
+                                    os.makedirs("static/audio", exist_ok=True)
                                     with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
                                         print(f"✅ Audio saved to {file_path}")
 
+                                    # 🔁 Convert with FFmpeg
                                     converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
                                     subprocess.run([
                                         "/usr/bin/ffmpeg",
@@ -366,14 +396,21 @@ async def media_stream(ws: WebSocket):
                                         "-c:a", "pcm_mulaw",
                                         converted_path
                                     ], check=True)
-                                        
-                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
+
+                                    # 🧠 Save to session
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+
                                 except Exception as audio_e:
-                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                                    print(f"⚠️ Error with ElevenLabs or FFmpeg: {audio_e}")
+
+                            loop.create_task(gpt_and_audio_pipeline(sentence))
+
+                        else:
+                            print(f"⚠️ Skipped low-confidence or too-short transcript: \"{sentence}\" (confidence {confidence:.2f})")
+
 
                             loop.create_task(gpt_and_audio_pipeline(sentence))
 
