@@ -304,6 +304,9 @@ async def media_stream(ws: WebSocket):
     print("★ Twilio WebSocket connected")
 
     call_sid_holder = {"sid": None}
+    last_input_time = {"ts": time.time()}
+    last_transcript = {"text": "", "confidence": 0.5}
+    finished = {"done": False}
     
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
@@ -475,9 +478,6 @@ async def media_stream(ws: WebSocket):
 
                     call_sid_holder["sid"] = sid
                     print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
-                    last_input_time = {"ts": time.time(2.0)}
-                    last_transcript = {"text": "", "confidence": 0.5}
-                    finished = {"done": False}
                     
                 elif event == "media":
                     print("📡 Media event received")
