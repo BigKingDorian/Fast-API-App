@@ -349,13 +349,32 @@ async def media_stream(ws: WebSocket):
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
                                     
+                                    elevenlabs_response = requests.post(
+                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                        headers={
+                                            "xi-api-key": ELEVENLABS_API_KEY,
+                                            "Content-Type": "application/json"
+                                        },
+                                        json={
+                                            "text": response,
+                                            "model_id": "eleven_flash_v2_5",
+                                            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                                        }
+                                    )
+
+                                    if elevenlabs_response.status_code != 200:
+                                        print("❌ ElevenLabs TTS failed")
+                                        return
+
+                                    audio_bytes = elevenlabs_response.content
                                     unique_id = uuid.uuid4().hex
                                     filename = f"response_{unique_id}.wav"
                                     file_path = f"static/audio/{filename}"
+
                                     with open(file_path, "wb") as f:
                                         f.write(audio_bytes)
                                         print(f"✅ Audio saved to {file_path}")
-
+                                        
                                     converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
                                     subprocess.run([
                                         "/usr/bin/ffmpeg",
