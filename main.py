@@ -256,7 +256,7 @@ async def twilio_voice_webhook(request: Request):
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
         save_transcript(call_sid, gpt_text, converted_path)
-        
+        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
@@ -339,81 +339,51 @@ async def media_stream(ws: WebSocket):
 
                     try:
                         sentence = payload["channel"]["alternatives"][0]["transcript"]
-                        confidence = payload["channel"]["alternatives"][0].get("confidence", 0.0)
-
-                        if (
-                            sentence
-                            and confidence >= 0.6
-                            and len(sentence.strip().split()) >= 3
-                        ):
-                            print(f"📝 Accepted: \"{sentence}\" (confidence {confidence:.2f})")
-    
+                        if sentence:
+                            print(f"📝 {sentence}")
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
 
-                                async def gpt_and_audio_pipeline(text):
-                                    try:
-                                        response = await get_gpt_response(text)
-                                        print(f"🤖 GPT: {response}")
+                            async def gpt_and_audio_pipeline(text):
+                                try:
+                                    response = await get_gpt_response(text)
+                                    print(f"🤖 GPT: {response}")
+                                    
+                                    unique_id = uuid.uuid4().hex
+                                    filename = f"response_{unique_id}.wav"
+                                    file_path = f"static/audio/{filename}"
+                                    with open(file_path, "wb") as f:
+                                        f.write(audio_bytes)
+                                        print(f"✅ Audio saved to {file_path}")
 
-                                        # 🔊 Generate audio from ElevenLabs
-                                        elevenlabs_response = requests.post(
-                                            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                                            headers={
-                                                "xi-api-key": ELEVENLABS_API_KEY,
-                                                "Content-Type": "application/json"
-                                            },
-                                            json={
-                                                "text": response,
-                                                "model_id": "eleven_flash_v2_5",
-                                                "voice_settings": {
-                                                    "stability": 0.5,
-                                                    "similarity_boost": 0.75
-                                                }
-                                            }
-                                        )
+                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                    subprocess.run([
+                                        "/usr/bin/ffmpeg",
+                                        "-y",
+                                        "-i", file_path,
+                                        "-ar", "8000",
+                                        "-ac", "1",
+                                        "-c:a", "pcm_mulaw",
+                                        converted_path
+                                    ], check=True)
+                                        
+                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
-                                        audio_bytes = elevenlabs_response.content
+                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+                                except Exception as audio_e:
+                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
 
-                                        # 💾 Save original audio
-                                        unique_id = uuid.uuid4().hex
-                                        filename = f"response_{unique_id}.wav"
-                                        file_path = f"static/audio/{filename}"
+                            loop.create_task(gpt_and_audio_pipeline(sentence))
 
-                                        os.makedirs("static/audio", exist_ok=True)
-                                        with open(file_path, "wb") as f:
-                                            f.write(audio_bytes)
-                                            print(f"✅ Audio saved to {file_path}")
-
-                                        # 🔁 Convert with FFmpeg
-                                        converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                                        subprocess.run([
-                                            "/usr/bin/ffmpeg",
-                                            "-y",
-                                            "-i", file_path,
-                                            "-ar", "8000",
-                                            "-ac", "1",
-                                            "-c:a", "pcm_mulaw",
-                                            converted_path
-                                        ], check=True)
-
-                                        print(f"🎛️ Converted audio saved at: {converted_path}")
-
-                                        # 🧠 Save to session
-                                        save_transcript(call_sid_holder["sid"], sentence, converted_path)
-                                        print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-
-                                    except Exception as audio_e:
-                                        print(f"⚠️ Error with ElevenLabs or FFmpeg: {audio_e}")
-
-                                loop.create_task(gpt_and_audio_pipeline(sentence))
-                                
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
                     print("🔍 Available attributes:", dir(result))
                     print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
                     print(result.__dict__)
+
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
                 
@@ -497,4 +467,3 @@ async def media_stream(ws: WebSocket):
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
         
-
