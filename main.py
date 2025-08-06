@@ -503,6 +503,12 @@ async def media_stream(ws: WebSocket):
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
                         last_input_time["ts"] = time.time()
+
+                        # Reset the is_final flag if new audio is detected after final transcript
+                        if last_transcript["is_final"]:
+                            print("🔁 Resetting final due to new audio input")
+                            last_transcript["is_final"] = False
+                            
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
