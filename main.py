@@ -292,8 +292,6 @@ async def twilio_voice_webhook(request: Request):
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-
-        vr.pause(2)
         
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
@@ -308,10 +306,6 @@ async def media_stream(ws: WebSocket):
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
-
-    last_audio_time = {"ts": time.time()}
-    maybe_final_time = {"ts": None}
-    is_ai_talking = {"status": False}
     finished = {"done": False}
     
     loop = asyncio.get_running_loop()
@@ -350,15 +344,7 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
-
-                        # ✅ Save transcript content
-                        last_transcript["text"] = sentence
-                        last_transcript["confidence"] = confidence
-        
-                        # ✅ Track the time if Deepgram thinks it's final
-                        if payload.get("is_final"):
-                            maybe_final_time["ts"] = time.time()
-                            
+                        
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
@@ -375,7 +361,6 @@ async def media_stream(ws: WebSocket):
                                 
                             async def gpt_and_audio_pipeline(text):
                                 try:
-                                    is_ai_talking["status"] = True
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
                                     
@@ -421,9 +406,6 @@ async def media_stream(ws: WebSocket):
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-
-                                    is_ai_talking["status"] = False
-                                    
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
                                     
@@ -453,25 +435,17 @@ async def media_stream(ws: WebSocket):
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
-                now = time.time()
-
+                elapsed = time.time() - last_input_time["ts"]
+        
                 if (
-                    not is_ai_talking["status"] and
-                    last_transcript["is_final"] and
-                    last_transcript["confidence"] >= 0.55 and
-                    maybe_final_time["ts"] is not None and
-                    time.time() - maybe_final_time["ts"] > 1.5 and  # user stayed silent after final
-                    time.time() - last_audio_time["ts"] > 1.5       # confirms silence from user, not AI
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.5 and
+                    last_transcript.get("is_final", False)
                 ):
-                    print("✅ User is definitely done. Triggering GPT.")
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
-                    
-                    last_transcript["text"] = ""
-                    last_transcript["confidence"] = 0.0
-                    last_transcript["is_final"] = False
-                    maybe_final_time["ts"] = None
                     
         loop.create_task(monitor_user_done())
         
@@ -517,13 +491,8 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
-
-                        # 🔄 Track the last time we got user audio
                         last_input_time["ts"] = time.time()
-                        last_audio_time["ts"] = time.time()
-
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
-
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
