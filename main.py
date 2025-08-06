@@ -305,7 +305,6 @@ async def media_stream(ws: WebSocket):
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
-    last_media_received_time = {"ts": time.time()}  # 🔁 updates on every audio event
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
     
@@ -344,17 +343,14 @@ async def media_stream(ws: WebSocket):
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
-                        is_final = payload.get("is_final", False)  # ✅ cleaner way
-
-                        if is_final:
-                            final_received_time["ts"] = time.time()  # ✅ Add this
-
+                        is_final = payload["is_final"] if "is_final" in payload else False
+                        
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = is_final
+                            last_transcript["is_final"] = payload.get("is_final", False)
                             
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
@@ -437,25 +433,16 @@ async def media_stream(ws: WebSocket):
         print("✅ Deepgram connection started")
         
         async def monitor_user_done():
-            silence_timeout = 4.0
-
             while not finished["done"]:
                 await asyncio.sleep(0.5)
-
-                # Has Deepgram said this is final?
-                if not last_transcript["is_final"]:
-                    continue
-
-                time_since_last_media = time.time() - last_media_received_time["ts"]
-
-                print(f"⏱️ Time since last media: {time_since_last_media:.2f}s | Confidence: {last_transcript['confidence']} | Final: {last_transcript['is_final']}")
-
+                elapsed = time.time() - last_input_time["ts"]
+        
                 if (
-                    time_since_last_media > silence_timeout and
-                    last_transcript["confidence"] >= 0.85 and
-                    last_transcript["is_final"]
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.5 and
+                    last_transcript.get("is_final", False)
                 ):
-                    print("✅ Detected silence after final transcript — triggering GPT")
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
@@ -504,20 +491,11 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
-
-                        # ⏱️ Update time of last media packet
                         last_input_time["ts"] = time.time()
-                        last_media_received_time["ts"] = time.time()
-
-                        # 🔁 Reset final flag if more audio is coming
-                        if last_transcript["is_final"]:
-                            print("🔁 Resetting final due to more audio")
-                            last_transcript["is_final"] = False
-
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
-                        
+
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
