@@ -306,6 +306,10 @@ async def media_stream(ws: WebSocket):
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
+
+    last_audio_time = {"ts": time.time()}
+    maybe_final_time = {"ts": None}
+    is_ai_talking = {"status": False}
     finished = {"done": False}
     
     loop = asyncio.get_running_loop()
@@ -344,7 +348,15 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
-                        
+
+                        # ✅ Save transcript content
+                        last_transcript["text"] = sentence
+                        last_transcript["confidence"] = confidence
+        
+                        # ✅ Track the time if Deepgram thinks it's final
+                        if payload.get("is_final"):
+                            maybe_final_time["ts"] = time.time()
+                            
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
@@ -361,6 +373,7 @@ async def media_stream(ws: WebSocket):
                                 
                             async def gpt_and_audio_pipeline(text):
                                 try:
+                                    is_ai_talking["status"] = True
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
                                     
@@ -406,6 +419,9 @@ async def media_stream(ws: WebSocket):
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+
+                                    is_ai_talking["status"] = False
+                                    
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
                                     
@@ -435,14 +451,16 @@ async def media_stream(ws: WebSocket):
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
-                elapsed = time.time() - last_input_time["ts"]
-        
+                now = time.time()
+
                 if (
-                    elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False)
+                    maybe_final_time["ts"] is not None and
+                    not is_ai_talking["status"] and
+                    now - maybe_final_time["ts"] > 1.5 and
+                    now - last_audio_time["ts"] > 1.5 and
+                    last_transcript["confidence"] >= 0.65
                 ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    print("✅ User is definitely done. Triggering GPT.")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
@@ -491,8 +509,13 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
+
+                        # 🔄 Track the last time we got user audio
                         last_input_time["ts"] = time.time()
+                        last_audio_time["ts"] = time.time()
+
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
+
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
