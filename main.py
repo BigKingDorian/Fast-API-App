@@ -305,9 +305,9 @@ async def media_stream(ws: WebSocket):
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
+    last_media_received_time = {"ts": time.time()}  # 🔁 updates on every audio event
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
-    final_received_time = {"ts": None}  # ✅ Track when Deepgram sends is_final = True
     
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
@@ -437,30 +437,25 @@ async def media_stream(ws: WebSocket):
         print("✅ Deepgram connection started")
         
         async def monitor_user_done():
-            has_user_spoken = False
-            min_speech_duration = 1.5  # how long the user must speak minimum
-            min_silence_after_final = 4.0  # how long of silence to wait after is_final
+            silence_timeout = 4.0
 
             while not finished["done"]:
                 await asyncio.sleep(0.5)
 
-                # User hasn’t said anything yet
-                if not last_transcript["text"]:
+                # Has Deepgram said this is final?
+                if not last_transcript["is_final"]:
                     continue
 
-                # Track that user started speaking at some point
-                has_user_spoken = True
+                time_since_last_media = time.time() - last_media_received_time["ts"]
 
-                time_since_last_audio = time.time() - last_input_time["ts"]
+                print(f"⏱️ Time since last media: {time_since_last_media:.2f}s | Confidence: {last_transcript['confidence']} | Final: {last_transcript['is_final']}")
 
                 if (
-                    has_user_spoken and
-                    last_transcript["is_final"] and
-                    last_transcript["confidence"] >= 0.55 and
-                    time_since_last_audio >= min_silence_after_final
+                    time_since_last_media > silence_timeout and
+                    last_transcript["confidence"] >= 0.85 and
+                    last_transcript["is_final"]
                 ):
-
-                    print("✅ User done speaking. Proceeding to GPT pipeline.")
+                    print("✅ Detected silence after final transcript — triggering GPT")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
@@ -509,17 +504,20 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
-                        last_input_time["ts"] = time.time()
 
-                        # Reset the is_final flag if new audio is detected after final transcript
+                        # ⏱️ Update time of last media packet
+                        last_input_time["ts"] = time.time()
+                        last_media_received_time["ts"] = time.time()
+
+                        # 🔁 Reset final flag if more audio is coming
                         if last_transcript["is_final"]:
-                            print("🔁 Resetting final due to new audio input")
+                            print("🔁 Resetting final due to more audio")
                             last_transcript["is_final"] = False
-                            
+
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
-
+                        
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
