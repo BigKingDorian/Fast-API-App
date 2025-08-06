@@ -437,23 +437,30 @@ async def media_stream(ws: WebSocket):
         print("✅ Deepgram connection started")
         
         async def monitor_user_done():
+            has_user_spoken = False
+            min_speech_duration = 1.5  # how long the user must speak minimum
+            min_silence_after_final = 4.0  # how long of silence to wait after is_final
+
             while not finished["done"]:
                 await asyncio.sleep(0.5)
 
-                # Don't continue unless a final transcript has been received
-                if not last_transcript["is_final"]:
+                # User hasn’t said anything yet
+                if not last_transcript["text"]:
                     continue
 
-                time_since_audio = time.time() - last_input_time["ts"]
+                # Track that user started speaking at some point
+                has_user_spoken = True
 
-                print(f"⏳ Time since audio: {time_since_audio:.2f}s | Confidence: {last_transcript['confidence']} | Final: {last_transcript['is_final']}")
+                time_since_last_audio = time.time() - last_input_time["ts"]
 
                 if (
-                    time_since_audio > 4.0 and
-                    last_transcript["confidence"] >= 0.85 and
-                    last_transcript["is_final"]
+                    has_user_spoken and
+                    last_transcript["is_final"] and
+                    last_transcript["confidence"] >= 0.55 and
+                    time_since_last_audio >= min_silence_after_final
                 ):
-                    print("✅ Conditions met — user stopped talking and transcript is final")
+
+                    print("✅ User done speaking. Proceeding to GPT pipeline.")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
