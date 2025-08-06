@@ -440,19 +440,20 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
 
-                # Don’t do anything until a final result has been received
-                if final_received_time["ts"] is None:
+                # Don't continue unless a final transcript has been received
+                if not last_transcript["is_final"]:
                     continue
 
-                elapsed_since_final = time.time() - final_received_time["ts"]
-                print(f"⏳ Waiting silence after final: {elapsed_since_final:.2f}s")
+                time_since_audio = time.time() - last_input_time["ts"]
+
+                print(f"⏳ Time since audio: {time_since_audio:.2f}s | Confidence: {last_transcript['confidence']} | Final: {last_transcript['is_final']}")
 
                 if (
-                    elapsed_since_final > 4.0 and
+                    time_since_audio > 4.0 and
                     last_transcript["confidence"] >= 0.85 and
                     last_transcript["is_final"]
                 ):
-                    print(f"✅ Responding after {elapsed_since_final:.2f}s of silence following final")
+                    print("✅ Conditions met — user stopped talking and transcript is final")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
