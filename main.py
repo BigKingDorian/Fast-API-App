@@ -292,6 +292,8 @@ async def twilio_voice_webhook(request: Request):
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
+
+        vr.pause(2)
         
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
