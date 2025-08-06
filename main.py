@@ -438,7 +438,7 @@ async def media_stream(ws: WebSocket):
                 elapsed = time.time() - last_input_time["ts"]
         
                 if (
-                    elapsed > 2.0 and
+                    elapsed > 4.0 and
                     last_transcript["confidence"] >= 0.5 and
                     last_transcript.get("is_final", False)
                 ):
