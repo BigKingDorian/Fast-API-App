@@ -439,7 +439,7 @@ async def media_stream(ws: WebSocket):
         
                 if (
                     elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.85 and
+                    last_transcript["confidence"] >= 0.5 and
                     last_transcript.get("is_final", False)
                 ):
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
