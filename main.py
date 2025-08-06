@@ -305,7 +305,7 @@ async def media_stream(ws: WebSocket):
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
-    last_transcript = {"text": "", "confidence": 0.5}
+    last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
     
     loop = asyncio.get_running_loop()
@@ -343,7 +343,9 @@ async def media_stream(ws: WebSocket):
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
-
+                        is_final = payload["is_final"] if "is_final" in payload else False
+                        last_transcript["is_final"] = payload.get("is_final", False)
+                        
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
@@ -434,12 +436,17 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-                if elapsed > 2.0 and last_transcript["confidence"] >= 0.85:
-                    print(f"🛑 No input for {elapsed:.1f}s and high confidence ➜ user is done.")
+        
+                if (
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.85 and
+                    last_transcript.get("is_final", False)
+                ):
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
-
+                    
         loop.create_task(monitor_user_done())
         
         async def sender():
