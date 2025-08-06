@@ -344,14 +344,14 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
-                        last_transcript["is_final"] = payload.get("is_final", False)
                         
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
-
+                            last_transcript["is_final"] = payload.get("is_final", False)
+                            
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
                                 
