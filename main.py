@@ -307,6 +307,7 @@ async def media_stream(ws: WebSocket):
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
+    final_received_time = {"ts": None}  # ✅ Track when Deepgram sends is_final = True
     
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
@@ -343,14 +344,17 @@ async def media_stream(ws: WebSocket):
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
-                        is_final = payload["is_final"] if "is_final" in payload else False
-                        
+                        is_final = payload.get("is_final", False)  # ✅ cleaner way
+
+                        if is_final:
+                            final_received_time["ts"] = time.time()  # ✅ Add this
+
                         if sentence:
                             print(f"📝 {sentence} (confidence: {confidence})")
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = payload.get("is_final", False)
+                            last_transcript["is_final"] = is_final
                             
                             if call_sid_holder["sid"]:
                                 save_transcript(call_sid_holder["sid"], sentence)
@@ -435,14 +439,20 @@ async def media_stream(ws: WebSocket):
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
-                elapsed = time.time() - last_input_time["ts"]
-        
+
+                # Don’t do anything until a final result has been received
+                if final_received_time["ts"] is None:
+                    continue
+
+                elapsed_since_final = time.time() - final_received_time["ts"]
+                print(f"⏳ Waiting silence after final: {elapsed_since_final:.2f}s")
+
                 if (
-                    elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False)
+                    elapsed_since_final > 4.0 and
+                    last_transcript["confidence"] >= 0.85 and
+                    last_transcript["is_final"]
                 ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    print(f"✅ Responding after {elapsed_since_final:.2f}s of silence following final")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
