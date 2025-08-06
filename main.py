@@ -454,16 +454,22 @@ async def media_stream(ws: WebSocket):
                 now = time.time()
 
                 if (
-                    maybe_final_time["ts"] is not None and
                     not is_ai_talking["status"] and
-                    now - maybe_final_time["ts"] > 1.5 and
-                    now - last_audio_time["ts"] > 1.5 and
-                    last_transcript["confidence"] >= 0.65
+                    last_transcript["is_final"] and
+                    last_transcript["confidence"] >= 0.55 and
+                    maybe_final_time["ts"] is not None and
+                    time.time() - maybe_final_time["ts"] > 1.5 and  # user stayed silent after final
+                    time.time() - last_audio_time["ts"] > 1.5       # confirms silence from user, not AI
                 ):
                     print("✅ User is definitely done. Triggering GPT.")
                     finished["done"] = True
                     await gpt_and_audio_pipeline(last_transcript["text"])
                     break
+                    
+                    last_transcript["text"] = ""
+                    last_transcript["confidence"] = 0.0
+                    last_transcript["is_final"] = False
+                    maybe_final_time["ts"] = None
                     
         loop.create_task(monitor_user_done())
         
