@@ -173,22 +173,20 @@ async def twilio_voice_webhook(request: Request):
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
-    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_transcript_for_this_call(call_sid)
-    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
-    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    # 2. NEW: Wait for endpointed user text
+    mem = session_memory.get(call_sid) or {}
+    if not (mem.get("user_ready") and mem.get("user_transcript")):
+        vr.pause(length=1)
+        vr.redirect("/")
+        return Response(str(vr), media_type="application/xml")
 
-    fallback_phrases = {
-        "", "hello", "hi",
-        "hello, what can i help you with?",
-        "[gpt failed to respond]",
-    }
-    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
-        print("🚫 No real transcript yet ➜ using default greeting.")
-        gpt_text = "Hello, how can I help you today?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
-        print(f"✅ GPT response: \"{gpt_text}\"")
+    # Consume and use the transcript
+    gpt_input = mem["user_transcript"]
+    session_memory[call_sid]["user_ready"] = False  # mark as used
+
+    # Generate GPT response
+    gpt_text = await get_gpt_response(gpt_input)
+    print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
@@ -263,36 +261,30 @@ async def twilio_voice_webhook(request: Request):
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
-    # Start Deepgram stream
     start = Start()
     start.stream(
-        url="wss://silent-sound-1030.fly.dev/media",
+        url=f"wss://silent-sound-1030.fly.dev/media?callSid={call_sid}",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-
+    
     log("📡 Starting Deepgram stream to WebSocket endpoint")
 
-    # Try to retrieve the most recent converted file with retries
-    audio_path = None
-    for _ in range(10):
-        current_path = get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
-        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
-        if current_path and os.path.exists(current_path):
-            audio_path = current_path
-            break
-        await asyncio.sleep(1)
+    # NEW: Wait for endpointed user text
+    mem = session_memory.get(call_sid) or {}
+    if not (mem.get("user_ready") and mem.get("user_transcript")):
+        vr.pause(length=1)
+        vr.redirect("/")
+        return Response(str(vr), media_type="application/xml")
 
-    if audio_path:
-        ulaw_filename = os.path.basename(audio_path)
-        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print(f"✅ Queued audio for playback: {ulaw_filename}")
-    else:
-        print("❌ Audio not found after retry loop")
-        vr.say("Sorry, something went wrong.")
-        
+    # Consume and use the transcript
+    gpt_input = mem["user_transcript"]
+    session_memory[call_sid]["user_ready"] = False  # mark as used
+
+    # Generate GPT response
+    gpt_text = await get_gpt_response(gpt_input)
+    print(f"✅ GPT response: \"{gpt_text}\"")
+
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
