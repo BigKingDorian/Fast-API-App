@@ -325,40 +325,47 @@ async def media_stream(ws: WebSocket):
 
         def on_transcript(*args, **kwargs):
             try:
-                print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
-                metadata = kwargs.get("metadata")
-
-                if result is None:
-                    print("⚠️ No result received.")
+                if not result or not hasattr(result, "to_dict"):
                     return
 
-                print("📂 Type of result:", type(result))
+                payload = result.to_dict()
 
-                if hasattr(result, "to_dict"):
-                    payload = result.to_dict()
-                    print(json.dumps(payload, indent=2))
+                # Endpointing signals (handle all common variants)
+                is_final     = bool(payload.get("is_final"))
+                speech_final = bool(payload.get("speech_final"))      # Nova-3
+                endpoint     = bool(payload.get("endpoint"))          # some SDKs
+                msg_type     = payload.get("type")                    # "UtteranceEnd" if enabled
 
-                    try:
-                        alt = payload["channel"]["alternatives"][0]
-                        sentence = alt.get("transcript", "")
-                        confidence = alt.get("confidence", 0.0)
-                        is_final = payload["is_final"] if "is_final" in payload else False
-                        
-                        if sentence:
-                            print(f"📝 {sentence} (confidence: {confidence})")
-                            last_input_time["ts"] = time.time()
-                            last_transcript["text"] = sentence
-                            last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = payload.get("is_final", False)
-                            
-                            if call_sid_holder["sid"]:
-                                save_transcript(call_sid_holder["sid"], sentence)
-                                
-                                # ✅ Mark the session as ready for playback in the POST route
-                                session_memory[call_sid_holder["sid"]]["ready"] = True
-                                print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
-                                
+                alt = payload.get("channel", {}).get("alternatives", [{}])[0]
+                sentence   = alt.get("transcript", "") or ""
+                confidence = float(alt.get("confidence", 0.0) or 0.0)
+
+                if not sentence:
+                    return
+
+                # keep timer and latest fields updated
+                last_input_time["ts"] = time.time()
+                last_transcript["text"] = sentence
+                last_transcript["confidence"] = confidence
+                last_transcript["is_final"] = is_final
+
+                # === endpoint reached ===
+                if speech_final or endpoint or msg_type == "UtteranceEnd" or is_final:
+                    sid = call_sid_holder.get("sid")
+                    if not sid:
+                        print("❌ No CallSid; cannot persist final transcript")
+                        return
+                    session_memory.setdefault(sid, {})
+                    session_memory[sid]["user_transcript"] = sentence
+                    session_memory[sid]["user_ready"] = True
+                    session_memory[sid]["ready_at"] = time.time()
+                    print(f"💾 [WS] Endpoint hit → saved FINAL for {sid} "
+                          f"(endpoint={endpoint}, speech_final={speech_final}, is_final={is_final}, conf={confidence:.2f})")
+
+            except Exception as e:
+                print(f"⚠️ Error handling transcript: {e}")
+                
                             async def gpt_and_audio_pipeline(text):
                                 try:
                                     response = await get_gpt_response(text)
@@ -427,26 +434,12 @@ async def media_stream(ws: WebSocket):
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
+            endpointing=2000
         )
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
         
-        async def monitor_user_done():
-            while not finished["done"]:
-                await asyncio.sleep(0.5)
-                elapsed = time.time() - last_input_time["ts"]
-        
-                if (
-                    elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False)
-                ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
-                    finished["done"] = True
-                    await gpt_and_audio_pipeline(last_transcript["text"])
-                    break
-                    
         loop.create_task(monitor_user_done())
         
         async def sender():
