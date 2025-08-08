@@ -407,17 +407,7 @@ async def gpt_and_audio_pipeline(text):
         print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
     except Exception as audio_e:
         print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-                                    
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                else:
-                    print("🔍 Available attributes:", dir(result))
-                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
-                    print(result.__dict__)
-
-            except Exception as e:
-                print(f"⚠️ Error handling transcript: {e}")
-                
+                                            
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
