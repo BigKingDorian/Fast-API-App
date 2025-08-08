@@ -189,7 +189,77 @@ async def twilio_voice_webhook(request: Request):
     else:
         gpt_text = await get_gpt_response(gpt_input)
         print(f"✅ GPT response: \"{gpt_text}\"")
+
+    # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
+    elevenlabs_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }
+    )
+    
+    print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
+    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+          f"bytes {len(elevenlabs_response.content)}")
+
+    audio_bytes = elevenlabs_response.content
+    unique_id = uuid.uuid4().hex
+    file_path = f"static/audio/response_{unique_id}.wav"
+
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+    print(f"💾 Saved original WAV → {file_path}")
+
+    await asyncio.sleep(1)
+
+    # ✅ Failure check with print statements
+    if not audio_bytes or elevenlabs_response.status_code != 200:
+        print("❌ ElevenLabs failed or returned empty audio!")
+        print("🔁 GPT Text:", gpt_text)
+        print("🛑 Status:", elevenlabs_response.status_code)
+        print("📜 Response:", elevenlabs_response.text)
+        return Response("Audio generation failed.", status_code=500)
         
+    # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
+    converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+    try:
+        subprocess.run([
+            "/usr/bin/ffmpeg", "-y", "-i", file_path,
+            "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ FFmpeg failed: {e}")
+        return Response("Audio conversion failed", status_code=500)
+    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+    # ✅ Wait for file to become available (race condition guard)
+    for i in range(40):
+        if os.path.isfile(converted_path):
+            print(f"✅ Found converted file after {i * 0.1:.1f}s")
+            break
+        await asyncio.sleep(0.1)
+    else:
+        print("❌ Converted file never appeared — aborting")
+        return Response("Converted audio not available", status_code=500)
+    print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
+    log("✅ Audio file saved at %s", converted_path)
+    # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
+    if len(audio_bytes) > 2000:
+        save_transcript(call_sid, gpt_text, converted_path)
+        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+    else:
+        print("⚠️ Skipping transcript/audio save due to likely blank response.")
+
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
@@ -446,4 +516,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-        
+
