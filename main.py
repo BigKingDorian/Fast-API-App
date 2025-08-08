@@ -173,21 +173,24 @@ async def twilio_voice_webhook(request: Request):
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
-    # 2. NEW: Wait for endpointed user text
+    # Build TwiML object **first**
+    vr = VoiceResponse()
+
+    # (Re)start the stream so Twilio keeps sending audio to your WS
+    start = Start()
+    start.stream(
+        url=f"wss://silent-sound-1030.fly.dev/media?callSid={call_sid}",
+        content_type="audio/x-mulaw;rate=8000"
+    )
+    vr.append(start)
+
+    # Now it's safe to use vr in the wait-guard
     mem = session_memory.get(call_sid) or {}
     if not (mem.get("user_ready") and mem.get("user_transcript")):
         vr.pause(length=1)
         vr.redirect("/")
         return Response(str(vr), media_type="application/xml")
-
-    # Consume and use the transcript
-    gpt_input = mem["user_transcript"]
-    session_memory[call_sid]["user_ready"] = False  # mark as used
-
-    # Generate GPT response
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"✅ GPT response: \"{gpt_text}\"")
-
+        
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
