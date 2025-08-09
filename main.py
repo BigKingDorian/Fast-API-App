@@ -173,24 +173,23 @@ async def twilio_voice_webhook(request: Request):
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
-    # Build TwiML object **first**
-    vr = VoiceResponse()
+    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    gpt_input = get_last_transcript_for_this_call(call_sid)
+    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    # (Re)start the stream so Twilio keeps sending audio to your WS
-    start = Start()
-    start.stream(
-        url=f"wss://silent-sound-1030.fly.dev/media?callSid={call_sid}",
-        content_type="audio/x-mulaw;rate=8000"
-    )
-    vr.append(start)
+    fallback_phrases = {
+        "", "hello", "hi",
+        "hello, what can i help you with?",
+        "[gpt failed to respond]",
+    }
+    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
+        print("🚫 No real transcript yet ➜ using default greeting.")
+        gpt_text = "Hello, how can I help you today?"
+    else:
+        gpt_text = await get_gpt_response(gpt_input)
+        print(f"✅ GPT response: \"{gpt_text}\"")
 
-    # Now it's safe to use vr in the wait-guard
-    mem = session_memory.get(call_sid) or {}
-    if not (mem.get("user_ready") and mem.get("user_transcript")):
-        vr.pause(length=1)
-        vr.redirect("/")
-        return Response(str(vr), media_type="application/xml")
-        
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
@@ -264,30 +263,36 @@ async def twilio_voice_webhook(request: Request):
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
+    # Start Deepgram stream
     start = Start()
     start.stream(
-        url=f"wss://silent-sound-1030.fly.dev/media?callSid={call_sid}",
+        url="wss://silent-sound-1030.fly.dev/media",
         content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
-    
+
     log("📡 Starting Deepgram stream to WebSocket endpoint")
 
-    # NEW: Wait for endpointed user text
-    mem = session_memory.get(call_sid) or {}
-    if not (mem.get("user_ready") and mem.get("user_transcript")):
-        vr.pause(length=1)
-        vr.redirect("/")
-        return Response(str(vr), media_type="application/xml")
+    # Try to retrieve the most recent converted file with retries
+    audio_path = None
+    for _ in range(10):
+        current_path = get_last_audio_for_call(call_sid)
+        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
+        if current_path and os.path.exists(current_path):
+            audio_path = current_path
+            break
+        await asyncio.sleep(1)
 
-    # Consume and use the transcript
-    gpt_input = mem["user_transcript"]
-    session_memory[call_sid]["user_ready"] = False  # mark as used
-
-    # Generate GPT response
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"✅ GPT response: \"{gpt_text}\"")
-
+    if audio_path:
+        ulaw_filename = os.path.basename(audio_path)
+        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print(f"✅ Queued audio for playback: {ulaw_filename}")
+    else:
+        print("❌ Audio not found after retry loop")
+        vr.say("Sorry, something went wrong.")
+        
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
@@ -320,105 +325,100 @@ async def media_stream(ws: WebSocket):
 
         def on_transcript(*args, **kwargs):
             try:
+                print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
-                if not result or not hasattr(result, "to_dict"):
+                metadata = kwargs.get("metadata")
+
+                if result is None:
+                    print("⚠️ No result received.")
                     return
 
-                payload = result.to_dict()
+                print("📂 Type of result:", type(result))
 
-                # Endpointing signals (handle all common variants)
-                is_final     = bool(payload.get("is_final"))
-                speech_final = bool(payload.get("speech_final"))      # Nova-3
-                endpoint     = bool(payload.get("endpoint"))          # some SDKs
-                msg_type     = payload.get("type")                    # "UtteranceEnd" if enabled
+                if hasattr(result, "to_dict"):
+                    payload = result.to_dict()
+                    print(json.dumps(payload, indent=2))
 
-                alt = payload.get("channel", {}).get("alternatives", [{}])[0]
-                sentence   = alt.get("transcript", "") or ""
-                confidence = float(alt.get("confidence", 0.0) or 0.0)
+                    try:
+                        alt = payload["channel"]["alternatives"][0]
+                        sentence = alt.get("transcript", "")
+                        confidence = alt.get("confidence", 0.0)
+                        is_final = payload["is_final"] if "is_final" in payload else False
+                        
+                        if sentence:
+                            print(f"📝 {sentence} (confidence: {confidence})")
+                            last_input_time["ts"] = time.time()
+                            last_transcript["text"] = sentence
+                            last_transcript["confidence"] = confidence
+                            last_transcript["is_final"] = payload.get("is_final", False)
+                            
+                            if call_sid_holder["sid"]:
+                                save_transcript(call_sid_holder["sid"], sentence)
+                                
+                                # ✅ Mark the session as ready for playback in the POST route
+                                session_memory[call_sid_holder["sid"]]["ready"] = True
+                                print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
+                                
+                            async def gpt_and_audio_pipeline(text):
+                                try:
+                                    response = await get_gpt_response(text)
+                                    print(f"🤖 GPT: {response}")
+                                    
+                                    elevenlabs_response = requests.post(
+                                        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                                        headers={
+                                            "xi-api-key": ELEVENLABS_API_KEY,
+                                            "Content-Type": "application/json"
+                                        },
+                                        json={
+                                            "text": response,
+                                            "model_id": "eleven_flash_v2_5",
+                                            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                                        }
+                                    )
 
-                if not sentence:
-                    return
+                                    if elevenlabs_response.status_code != 200:
+                                        print("❌ ElevenLabs TTS failed")
+                                        return
 
-                # keep timer and latest fields updated
-                last_input_time["ts"] = time.time()
-                last_transcript["text"] = sentence
-                last_transcript["confidence"] = confidence
-                last_transcript["is_final"] = is_final
+                                    audio_bytes = elevenlabs_response.content
+                                    unique_id = uuid.uuid4().hex
+                                    filename = f"response_{unique_id}.wav"
+                                    file_path = f"static/audio/{filename}"
 
-                # === endpoint reached ===
-                if speech_final or endpoint or msg_type == "UtteranceEnd" or is_final:
-                    sid = call_sid_holder.get("sid")
-                    if not sid:
-                        print("❌ No CallSid; cannot persist final transcript")
-                        return
-                    session_memory.setdefault(sid, {})
-                    session_memory[sid]["user_transcript"] = sentence
-                    session_memory[sid]["user_ready"] = True
-                    session_memory[sid]["ready_at"] = time.time()
-                    print(
-                        f"💾 [WS] Endpoint hit → saved FINAL for {sid} "
-                        f"(endpoint={endpoint}, speech_final={speech_final}, is_final={is_final}, conf={confidence:.2f})"
-                    )
+                                    with open(file_path, "wb") as f:
+                                        f.write(audio_bytes)
+                                        print(f"✅ Audio saved to {file_path}")
+                                        
+                                    converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
+                                    subprocess.run([
+                                        "/usr/bin/ffmpeg",
+                                        "-y",
+                                        "-i", file_path,
+                                        "-ar", "8000",
+                                        "-ac", "1",
+                                        "-c:a", "pcm_mulaw",
+                                        converted_path
+                                    ], check=True)
+                                        
+                                    print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
+
+                                    print(f"🎛️ Converted audio saved at: {converted_path}")
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
+                                except Exception as audio_e:
+                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                                    
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                else:
+                    print("🔍 Available attributes:", dir(result))
+                    print("⚠️ This object cannot be serialized directly. Trying .__dict__...")
+                    print(result.__dict__)
 
             except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
-
-        async def gpt_and_audio_pipeline(text):
-            try:
-                response = await get_gpt_response(text)
-                print(f"🤖 GPT: {response}")
-                                        
-                elevenlabs_response = requests.post(
-                    f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-                    headers={
-                        "xi-api-key": ELEVENLABS_API_KEY,
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "text": response,
-                        "model_id": "eleven_flash_v2_5",
-                        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-                    }
-                )
-
-                if elevenlabs_response.status_code != 200:
-                    print("❌ ElevenLabs TTS failed")
-                    return
-
-                audio_bytes = elevenlabs_response.content
-                unique_id = uuid.uuid4().hex
-                filename = f"response_{unique_id}.wav"
-                file_path = f"static/audio/{filename}"
-
-                with open(file_path, "wb") as f:
-                    f.write(audio_bytes)
-                    print(f"✅ Audio saved to {file_path}")
-                                            
-                converted_path = f"static/audio/{filename.replace('.wav', '_ulaw.wav')}"
-                subprocess.run([
-                    "/usr/bin/ffmpeg",
-                    "-y",
-                    "-i", file_path,
-                    "-ar", "8000",
-                    "-ac", "1",
-                    "-c:a", "pcm_mulaw",
-                    converted_path
-                ], check=True)
-                                            
-                print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
-                print(f"🎛️ Converted audio saved at: {converted_path}")
-
-                # use the text we were passed; don't reference an out-of-scope 'sentence'
-                sid = call_sid_holder.get("sid")
-                if sid:
-                    save_transcript(sid, text, converted_path)
-                    print(f"✅ [WS] Saved transcript for: {sid} → {converted_path}")
-                else:
-                    print("⚠️ No CallSid; skipping save_transcript")
-
-            except Exception as audio_e:
-                print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-
+                
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
@@ -427,11 +427,27 @@ async def media_stream(ws: WebSocket):
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
-            endpointing=2000
         )
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
+        
+        async def monitor_user_done():
+            while not finished["done"]:
+                await asyncio.sleep(0.5)
+                elapsed = time.time() - last_input_time["ts"]
+        
+                if (
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.5 and
+                    last_transcript.get("is_final", False)
+                ):
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    finished["done"] = True
+                    await gpt_and_audio_pipeline(last_transcript["text"])
+                    break
+                    
+        loop.create_task(monitor_user_done())
         
         async def sender():
             while True:
