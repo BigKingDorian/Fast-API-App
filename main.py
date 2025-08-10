@@ -46,8 +46,15 @@ if not OPENAI_API_KEY:
 if not ELEVENLABS_API_KEY:
     raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
+# ✅ Create the OpenAI client after loading the env
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 # Simple in-memory session store
 session_memory = {}
+
+# ✅ Create FastAPI app and mount static audio folder
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
@@ -78,9 +85,6 @@ def get_last_audio_for_call(call_sid):
     else:
         logging.error(f"❌ No audio path found for {call_sid} in session memory.")
         return None
-
-# ✅ Create the OpenAI client after loading the env
-client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
@@ -155,10 +159,6 @@ class VerboseStaticFiles(StaticFiles):
 
         return await super().get_response(path, scope)
         
-# ✅ Create FastAPI app and mount static audio folder
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
     print("\n📞 ── [POST] Twilio webhook hit ───────────────────────────────────")
