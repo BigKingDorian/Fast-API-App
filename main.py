@@ -39,6 +39,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")  # ✅ Also needed
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
+if not DEEPGRAM_API_KEY:
+    raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
+if not OPENAI_API_KEY:
+    raise RuntimeError("Missing OPENAI_API_KEY in environment")
+if not ELEVENLABS_API_KEY:
+    raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
+
 # Simple in-memory session store
 session_memory = {}
 
@@ -71,13 +78,6 @@ def get_last_audio_for_call(call_sid):
     else:
         logging.error(f"❌ No audio path found for {call_sid} in session memory.")
         return None
-
-if not DEEPGRAM_API_KEY:
-    raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
-if not OPENAI_API_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY in environment")
-if not ELEVENLABS_API_KEY:
-    raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
 # ✅ Create the OpenAI client after loading the env
 client = OpenAI(api_key=OPENAI_API_KEY)
