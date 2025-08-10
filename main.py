@@ -11,6 +11,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
+from openai import OpenAI
+from dotenv import load_dotenv
+load_dotenv("/root/Fast-API-App/.env")
 
 # Detect which VM / container you’re on
 INSTANCE = (
@@ -29,16 +33,6 @@ logging.basicConfig(
 )
 
 log = logging.getLogger("app").info     # quick alias → use log(...)
-
-# ✅ Load .env before any getenv calls
-from dotenv import load_dotenv
-load_dotenv("/root/Fast-API-App/.env")
-
-# ✅ Deepgram setup
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
-
-# ✅ OpenAI setup
-from openai import OpenAI
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
