@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import wav
 import base64
 import asyncio
 import time
@@ -55,6 +56,12 @@ session_memory = {}
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+def estimate_audio_duration(path):
+    with wave.open(path, 'rb') as f:
+        frames = f.getnframes()
+        rate = f.getframerate()
+        return frames / float(rate)
 
 def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
@@ -298,6 +305,8 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+    should_send_audio = {"enabled": True}
+
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
@@ -353,9 +362,19 @@ async def media_stream(ws: WebSocket):
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
                                 print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
-                                
+
+                                # Estimate duration from file metadata (optional)
+                                duration = estimate_audio_duration(file_path)  # You'll need to implement this or set static sleep
+
+                                await asyncio.sleep(duration + 0.5)  # Add a slight buffer
+                                should_send_audio["enabled"] = True
+                                print("✅ Resumed sending audio to Deepgram")
+
                             async def gpt_and_audio_pipeline(text):
                                 try:
+                                    should_send_audio["enabled"] = False
+                                    print("⏸️ Paused Deepgram transcription")
+                                    
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
                                     
@@ -485,9 +504,13 @@ async def media_stream(ws: WebSocket):
                     print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.send(payload)
-                        last_input_time["ts"] = time.time()
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
+
+                        if should_send_audio["enabled"]:
+                            dg_connection.send(payload)
+                            last_input_time["ts"] = time.time()
+                            print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
+                        else:
+                            print("🚫 Audio not sent to Deepgram — paused")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
