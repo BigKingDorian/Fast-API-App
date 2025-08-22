@@ -419,8 +419,9 @@ async def media_stream(ws: WebSocket):
                                     await asyncio.sleep(duration + 0.5)  # Add a slight buffer
                                     should_send_audio["enabled"] = True
                                     print("✅ Resumed sending audio to Deepgram")
-                                    except Exception as audio_e:
-                                        print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                                    
+                                except Exception as audio_e:
+                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
                                         
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
