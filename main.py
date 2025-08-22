@@ -420,7 +420,7 @@ async def media_stream(ws: WebSocket):
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     
                                     if call_sid_holder["sid"] not in session_memory:
-                                    session_memory[call_sid_holder["sid"]] = {}
+                                        session_memory[call_sid_holder["sid"]] = {}
 
                                     session_memory[call_sid_holder["sid"]]["gpt_response"] = response
                                     session_memory[call_sid_holder["sid"]]["audio_path"] = converted_path
