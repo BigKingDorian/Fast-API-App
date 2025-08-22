@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-import wav
+import wave
 import base64
 import asyncio
 import time
