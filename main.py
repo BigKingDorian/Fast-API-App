@@ -418,7 +418,13 @@ async def media_stream(ws: WebSocket):
                                     print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
-                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
+                                    
+                                    if call_sid_holder["sid"] not in session_memory:
+                                    session_memory[call_sid_holder["sid"]] = {}
+
+                                    session_memory[call_sid_holder["sid"]]["gpt_response"] = response
+                                    session_memory[call_sid_holder["sid"]]["audio_path"] = converted_path
+                                    
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
 
                                     # Estimate duration from file metadata (optional)
