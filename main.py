@@ -261,7 +261,8 @@ async def twilio_voice_webhook(request: Request):
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
-        content_type="audio/x-mulaw;rate=8000"
+        content_type="audio/x-mulaw;rate=8000",
+        track="inbound_audio"
     )
     vr.append(start)
 
