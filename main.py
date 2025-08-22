@@ -362,14 +362,7 @@ async def media_stream(ws: WebSocket):
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
                                 print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
-
-                                # Estimate duration from file metadata (optional)
-                                duration = estimate_audio_duration(file_path)  # You'll need to implement this or set static sleep
-
-                                await asyncio.sleep(duration + 0.5)  # Add a slight buffer
-                                should_send_audio["enabled"] = True
-                                print("✅ Resumed sending audio to Deepgram")
-
+                                
                             async def gpt_and_audio_pipeline(text):
                                 try:
                                     should_send_audio["enabled"] = False
@@ -420,9 +413,15 @@ async def media_stream(ws: WebSocket):
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
                                     save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-                                except Exception as audio_e:
-                                    print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-                                    
+
+                                    # Estimate duration from file metadata (optional)
+                                    duration = estimate_audio_duration(file_path)  # You'll need to implement this or set static sleep
+                                    await asyncio.sleep(duration + 0.5)  # Add a slight buffer
+                                    should_send_audio["enabled"] = True
+                                    print("✅ Resumed sending audio to Deepgram")
+                                    except Exception as audio_e:
+                                        print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
+                                        
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
