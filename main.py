@@ -1,7 +1,6 @@
 import logging
 import os
 import json
-import wave
 import base64
 import asyncio
 import time
@@ -56,12 +55,6 @@ session_memory = {}
 # ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-def estimate_audio_duration(path):
-    with wave.open(path, 'rb') as f:
-        frames = f.getnframes()
-        rate = f.getframerate()
-        return frames / float(rate)
 
 def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
@@ -256,14 +249,7 @@ async def twilio_voice_webhook(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        # Save GPT response separately
-        if call_sid not in session_memory:
-            session_memory[call_sid] = {}
-
-        session_memory[call_sid]["gpt_response"] = gpt_text
-        session_memory[call_sid]["audio_path"] = converted_path
-        log(f"🧠 GPT response saved separately for {call_sid}")
-
+        save_transcript(call_sid, gpt_text, converted_path)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -275,8 +261,7 @@ async def twilio_voice_webhook(request: Request):
     start = Start()
     start.stream(
         url="wss://silent-sound-1030.fly.dev/media",
-        content_type="audio/x-mulaw;rate=8000",
-        track="inbound_audio"
+        content_type="audio/x-mulaw;rate=8000"
     )
     vr.append(start)
 
@@ -311,8 +296,6 @@ async def twilio_voice_webhook(request: Request):
 async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
-
-    should_send_audio = {"enabled": True}
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
@@ -372,9 +355,6 @@ async def media_stream(ws: WebSocket):
                                 
                             async def gpt_and_audio_pipeline(text):
                                 try:
-                                    should_send_audio["enabled"] = False
-                                    print("⏸️ Paused Deepgram transcription")
-                                    
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
                                     
@@ -418,24 +398,11 @@ async def media_stream(ws: WebSocket):
                                     print(f"🧠 File exists immediately after conversion: {os.path.exists(converted_path)}")
 
                                     print(f"🎛️ Converted audio saved at: {converted_path}")
-                                    
-                                    if call_sid_holder["sid"] not in session_memory:
-                                        session_memory[call_sid_holder["sid"]] = {}
-
-                                    session_memory[call_sid_holder["sid"]]["gpt_response"] = response
-                                    session_memory[call_sid_holder["sid"]]["audio_path"] = converted_path
-                                    
+                                    save_transcript(call_sid_holder["sid"], sentence, converted_path)
                                     print(f"✅ [WS] Saved transcript for: {call_sid_holder['sid']} → {converted_path}")
-
-                                    # Estimate duration from file metadata (optional)
-                                    duration = estimate_audio_duration(file_path)  # You'll need to implement this or set static sleep
-                                    await asyncio.sleep(duration + 0.5)  # Add a slight buffer
-                                    should_send_audio["enabled"] = True
-                                    print("✅ Resumed sending audio to Deepgram")
-                                    
                                 except Exception as audio_e:
                                     print(f"⚠️ Error with ElevenLabs request or saving file: {audio_e}")
-                                        
+                                    
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
                 else:
@@ -517,13 +484,9 @@ async def media_stream(ws: WebSocket):
                     print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
-
-                        if should_send_audio["enabled"]:
-                            dg_connection.send(payload)
-                            last_input_time["ts"] = time.time()
-                            print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
-                        else:
-                            print("🚫 Audio not sent to Deepgram — paused")
+                        dg_connection.send(payload)
+                        last_input_time["ts"] = time.time()
+                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
@@ -547,3 +510,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
+        
