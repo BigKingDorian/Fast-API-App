@@ -185,6 +185,9 @@ async def twilio_voice_webhook(request: Request):
         print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
+    print("🟢 [POST] Starting ElevenLabs TTS conversion...")
+    print(f"🟢 [POST] Using GPT text: \"{gpt_text}\" for Call SID: {call_sid}")
+    
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
         headers={
@@ -197,6 +200,8 @@ async def twilio_voice_webhook(request: Request):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
         }
     )
+
+    print(f"🟢 [POST] ElevenLabs responded {elevenlabs_response.status_code} for Call SID: {call_sid}")
     
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
     print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
@@ -357,7 +362,10 @@ async def media_stream(ws: WebSocket):
                                 try:
                                     response = await get_gpt_response(text)
                                     print(f"🤖 GPT: {response}")
-                                    
+
+                                    print(f"🔵 [WS] Starting ElevenLabs TTS conversion...")
+                                    print(f"🔵 [WS] Using GPT text: \"{response}\" for Call SID: {call_sid_holder['sid']}")
+ 
                                     elevenlabs_response = requests.post(
                                         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
                                         headers={
@@ -370,7 +378,8 @@ async def media_stream(ws: WebSocket):
                                             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
                                         }
                                     )
-
+                                    print(f"🔵 [WS] ElevenLabs responded {elevenlabs_response.status_code} for Call SID: {call_sid_holder['sid']}")
+                                    
                                     if elevenlabs_response.status_code != 200:
                                         print("❌ ElevenLabs TTS failed")
                                         return
