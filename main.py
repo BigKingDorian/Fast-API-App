@@ -352,7 +352,12 @@ async def media_stream(ws: WebSocket):
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
                                 print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
-                
+
+                    except KeyError as e:
+                        print(f"⚠️ Missing expected key in payload: {e}")
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+                        
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
