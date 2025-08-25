@@ -357,7 +357,9 @@ async def media_stream(ws: WebSocket):
                         print(f"⚠️ Missing expected key in payload: {e}")
                     except Exception as inner_e:
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-                        
+            except Exception as e:  # ← This closes the OUTER try
+                print(f"⚠️ Error handling transcript: {e}")
+                
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
 
         options = LiveOptions(
