@@ -195,16 +195,33 @@ async def twilio_voice_webhook(request: Request):
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     gpt_input = get_last_user_transcript(call_sid)
-    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    session = session_memory.get(call_sid)
+
+    # Initialize session dict if missing
+    if session is None:
+        session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}, "greeted": False}
+        session = session_memory[call_sid]
+        log(f"🆕 Initialized session_memory for call {call_sid}")
+
+    print(f"🗄️ Session snapshot BEFORE GPT: {session}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    # 🚨 Block GPT calls if we don't have real user input yet
-    if not gpt_input or gpt_input.strip() == "":
-        print("⏸️ No user transcript yet — skipping GPT + TTS this round.")
-        return Response(status_code=204)  # Twilio expects valid response but we don't speak
+    # 🟢 CASE 1 — Send greeting ONCE per call
+    if not session.get("greeted", False):
+        gpt_text = "Hello! How can I help you today?"
+        session["greeted"] = True
+        log(f"👋 Sent initial greeting for {call_sid}: {gpt_text}")
+
+    # 🟢 CASE 2 — No transcript yet, but we've already greeted
+    elif not gpt_input or gpt_input.strip() == "":
+        log("⏸️ No user transcript yet — waiting for speech, not calling GPT.")
+        return Response(status_code=204)
+
+    # 🟢 CASE 3 — We have real user input → ask GPT
     else:
         gpt_text = await get_gpt_response(gpt_input)
-        print(f"✅ GPT response: \"{gpt_text}\"")
+        session["gpt"]["last_response"] = gpt_text
+        log(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
