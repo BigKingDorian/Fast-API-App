@@ -339,7 +339,8 @@ async def media_stream(ws: WebSocket):
                 "endpointing": 800  # 🟢 Wait 800ms of silence before finalizing
                 }
             
-            dg_connection = await asyncio.to_thread(live_client.v, "1", deepgram_options)
+            dg_connection = await asyncio.to_thread(live_client)
+
         except Exception as e:
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
