@@ -56,15 +56,24 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def save_transcript(call_sid, user_transcript=None, audio_path=None):
+def save_transcript(call_sid, user_transcript=None, gpt_response=None, audio_path=None):
     if call_sid not in session_memory:
-        session_memory[call_sid] = {}
+        session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}}
         log(f"🆕 Initialized session_memory for call {call_sid}")
+
+    # Save USER transcript
     if user_transcript:
-        session_memory[call_sid]["user_transcript"] = user_transcript
+        session_memory[call_sid]["user"]["last_transcript"] = user_transcript
         log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
+
+    # Save GPT RESPONSE separately
+    if gpt_response:
+        session_memory[call_sid]["gpt"]["last_response"] = gpt_response
+        log(f"🤖 GPT Response saved for {call_sid}: \"{gpt_response}\"")
+
+    # Save audio path metadata if relevant
     if audio_path:
-        session_memory[call_sid]["audio_path"] = audio_path
+        session_memory[call_sid]["meta"]["audio_path"] = audio_path
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 def get_last_transcript_for_this_call(call_sid):
@@ -75,6 +84,14 @@ def get_last_transcript_for_this_call(call_sid):
     else:
         log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
         return "Hello, how can i assist you today?"
+
+def get_last_gpt_response(call_sid: str):
+    data = session_memory.get(call_sid)
+    if data and "gpt" in data and "last_response" in data["gpt"]:
+        gpt_response = data["gpt"]["last_response"]
+        log(f"🤖 Retrieved last GPT response for {call_sid}: \"{gpt_response}\"")
+        return gpt_response
+    return ""
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -168,18 +185,14 @@ async def twilio_voice_webhook(request: Request):
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_transcript_for_this_call(call_sid)
+    gpt_input = get_last_user_transcript(call_sid)
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    fallback_phrases = {
-        "", "hello", "hi",
-        "hello, what can i help you with?",
-        "[gpt failed to respond]",
-    }
-    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
-        print("🚫 No real transcript yet ➜ using default greeting.")
+    # If the user hasn't said anything yet, use a greeting
+    if not gpt_input:
         gpt_text = "Hello, how can I help you today?"
+        print("🚫 No user transcript found ➜ using default greeting.")
     else:
         gpt_text = await get_gpt_response(gpt_input)
         print(f"✅ GPT response: \"{gpt_text}\"")
@@ -249,7 +262,7 @@ async def twilio_voice_webhook(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        save_transcript(call_sid, gpt_text, converted_path)
+        save_gpt_transcript(call_sid, gpt_response=gpt_text, audio_path=converted_path)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
