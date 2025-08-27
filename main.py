@@ -192,8 +192,8 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-
-    # If we have nothing to say, just return TwiML to keep stream alive
+    
+    # After you've already set gpt_text somewhere above
     if not gpt_text:
         vr = VoiceResponse()
         start = Start()
