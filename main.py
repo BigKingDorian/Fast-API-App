@@ -56,22 +56,28 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def save_transcript(call_sid, user_transcript=None, gpt_response=None, audio_path=None):
+def save_user_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}}
         log(f"🆕 Initialized session_memory for call {call_sid}")
 
-    # Save USER transcript
     if user_transcript:
         session_memory[call_sid]["user"]["last_transcript"] = user_transcript
         log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
 
-    # Save GPT RESPONSE separately
+    if audio_path:
+        session_memory[call_sid]["meta"]["audio_path"] = audio_path
+        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
+        
+def save_gpt_transcript(call_sid, gpt_response=None, audio_path=None):
+    if call_sid not in session_memory:
+        session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}}
+        log(f"🆕 Initialized session_memory for call {call_sid}")
+
     if gpt_response:
         session_memory[call_sid]["gpt"]["last_response"] = gpt_response
         log(f"🤖 GPT Response saved for {call_sid}: \"{gpt_response}\"")
 
-    # Save audio path metadata if relevant
     if audio_path:
         session_memory[call_sid]["meta"]["audio_path"] = audio_path
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
