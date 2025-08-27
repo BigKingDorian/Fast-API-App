@@ -198,10 +198,10 @@ async def twilio_voice_webhook(request: Request):
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    # If the user hasn't said anything yet, use a greeting
-    if not gpt_input:
-        gpt_text = "Hello, how can I help you today?"
-        print("🚫 No user transcript found ➜ using default greeting.")
+    # 🚨 Block GPT calls if we don't have real user input yet
+    if not gpt_input or gpt_input.strip() == "":
+        print("⏸️ No user transcript yet — skipping GPT + TTS this round.")
+        return Response(status_code=204)  # Twilio expects valid response but we don't speak
     else:
         gpt_text = await get_gpt_response(gpt_input)
         print(f"✅ GPT response: \"{gpt_text}\"")
