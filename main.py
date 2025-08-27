@@ -206,8 +206,9 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
         
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_transcript_for_this_call(call_sid)
-    gpt_text = None  # <-- add this line
+    gpt_input = get_last_user_transcript(call_sid)
+    gpt_text = None  # Always define it early to avoid unbound errors
+
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
@@ -215,8 +216,10 @@ async def twilio_voice_webhook(request: Request):
         gpt_text = "Hello, how can I help you today?"
     else:
         gpt_text = await get_gpt_response(gpt_input)
+
     print(f"✅ GPT response: \"{gpt_text}\"")
 
+    # ⬇️ PLACE IT HERE, after gpt_text is guaranteed to exist
     if not gpt_text:
         vr = VoiceResponse()
         start = Start()
@@ -227,7 +230,7 @@ async def twilio_voice_webhook(request: Request):
         vr.append(start)
         log("🔄 Holding open connection for future user speech.")
         return Response(content=str(vr), media_type="application/xml")
-
+        
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
