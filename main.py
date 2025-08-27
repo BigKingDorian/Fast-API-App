@@ -84,13 +84,14 @@ def save_gpt_transcript(call_sid, gpt_response=None, audio_path=None):
         
 def get_last_user_transcript(call_sid):
     data = session_memory.get(call_sid)
-    if data and "user_transcript" in data:
-        log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
-        return data["user_transcript"]
+    if data and "user" in data and "last_transcript" in data["user"]:
+        user_transcript = data["user"]["last_transcript"]
+        log(f"📤 Retrieved USER transcript for {call_sid}: \"{user_transcript}\"")
+        return user_transcript
     else:
-        log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
-        return "Hello, how can i assist you today?"
-
+        log(f"⚠️ No USER transcript found for {call_sid}")
+        return ""
+        
 def get_last_gpt_response(call_sid: str):
     data = session_memory.get(call_sid)
     if data and "gpt" in data and "last_response" in data["gpt"]:
