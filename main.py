@@ -193,6 +193,18 @@ async def twilio_voice_webhook(request: Request):
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
+    # If we have nothing to say, just return TwiML to keep stream alive
+    if not gpt_text:
+        vr = VoiceResponse()
+        start = Start()
+        start.stream(
+            url="wss://silent-sound-1030.fly.dev/media",
+            content_type="audio/x-mulaw;rate=8000"
+        )
+        vr.append(start)
+        log("🔄 Holding open connection for future user speech.")
+        return Response(content=str(vr), media_type="application/xml")
+        
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     gpt_input = get_last_user_transcript(call_sid)
     session = session_memory.get(call_sid)
@@ -206,17 +218,17 @@ async def twilio_voice_webhook(request: Request):
     print(f"🗄️ Session snapshot BEFORE GPT: {session}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    # 🟢 CASE 1 — Send greeting ONCE per call
+    # 🟢 CASE 1 — First time: greet the user
     if not session.get("greeted", False):
         gpt_text = "Hello! How can I help you today?"
         session["greeted"] = True
         log(f"👋 Sent initial greeting for {call_sid}: {gpt_text}")
 
-    # 🟢 CASE 2 — No transcript yet, but we've already greeted
+    # 🟢 CASE 2 — No transcript yet, but already greeted → stay quiet but KEEP STREAM ALIVE
     elif not gpt_input or gpt_input.strip() == "":
-        log("⏸️ No user transcript yet — waiting for speech, not calling GPT.")
-        return Response(status_code=204)
-
+        log("⏸️ No user transcript yet — holding the line open.")
+        gpt_text = None  # Don't speak anything, just maintain connection
+        
     # 🟢 CASE 3 — We have real user input → ask GPT
     else:
         gpt_text = await get_gpt_response(gpt_input)
