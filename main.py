@@ -192,19 +192,7 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # After you've already set gpt_text somewhere above
-    if not gpt_text:
-        vr = VoiceResponse()
-        start = Start()
-        start.stream(
-            url="wss://silent-sound-1030.fly.dev/media",
-            content_type="audio/x-mulaw;rate=8000"
-        )
-        vr.append(start)
-        log("🔄 Holding open connection for future user speech.")
-        return Response(content=str(vr), media_type="application/xml")
-        
+          
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     gpt_input = get_last_user_transcript(call_sid)
     gpt_text = None  # Always define it early to avoid unbound errors
