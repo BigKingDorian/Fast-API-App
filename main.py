@@ -377,7 +377,7 @@ async def media_stream(ws: WebSocket):
                             last_transcript["is_final"] = payload.get("is_final", False)
                             
                             if call_sid_holder["sid"]:
-                                save_transcript(call_sid_holder["sid"], sentence)
+                                save_user_transcript(call_sid_holder["sid"], user_transcript=sentence)
                                 
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
