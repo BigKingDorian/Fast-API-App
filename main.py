@@ -76,7 +76,7 @@ def save_transcript(call_sid, user_transcript=None, gpt_response=None, audio_pat
         session_memory[call_sid]["meta"]["audio_path"] = audio_path
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
-def get_last_transcript_for_this_call(call_sid):
+def get_last_user_transcript(call_sid):
     data = session_memory.get(call_sid)
     if data and "user_transcript" in data:
         log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
