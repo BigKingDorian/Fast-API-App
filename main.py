@@ -102,13 +102,15 @@ def get_last_gpt_response(call_sid: str):
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
 
-    if data and "audio_path" in data:
-        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
-        return data["audio_path"]
+    # 🔹 Look inside the new "meta" dict
+    if data and "meta" in data and "audio_path" in data["meta"]:
+        audio_path = data["meta"]["audio_path"]
+        log(f"🎧 Retrieved audio path for {call_sid}: {audio_path}")
+        return audio_path
     else:
         logging.error(f"❌ No audio path found for {call_sid} in session memory.")
         return None
-
+        
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
@@ -414,7 +416,7 @@ async def media_stream(ws: WebSocket):
                     
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
+                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("meta", {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
