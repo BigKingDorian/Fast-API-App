@@ -56,62 +56,36 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def save_user_transcript(call_sid, user_transcript=None, audio_path=None):
+def save_transcript(call_sid, user_transcript=None, audio_path=None):
     if call_sid not in session_memory:
-        session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}}
+        session_memory[call_sid] = {}
         log(f"🆕 Initialized session_memory for call {call_sid}")
-
     if user_transcript:
-        session_memory[call_sid]["user"]["last_transcript"] = user_transcript
+        session_memory[call_sid]["user_transcript"] = user_transcript
         log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
-
     if audio_path:
-        session_memory[call_sid]["meta"]["audio_path"] = audio_path
+        session_memory[call_sid]["audio_path"] = audio_path
         log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
-def save_gpt_transcript(call_sid, gpt_response=None, audio_path=None):
-    if call_sid not in session_memory:
-        session_memory[call_sid] = {"user": {}, "gpt": {}, "meta": {}}
-        log(f"🆕 Initialized session_memory for call {call_sid}")
-
-    if gpt_response:
-        session_memory[call_sid]["gpt"]["last_response"] = gpt_response
-        log(f"🤖 GPT Response saved for {call_sid}: \"{gpt_response}\"")
-
-    if audio_path:
-        session_memory[call_sid]["meta"]["audio_path"] = audio_path
-        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
-        
-def get_last_user_transcript(call_sid):
+def get_last_transcript_for_this_call(call_sid):
     data = session_memory.get(call_sid)
-    if data and "user" in data and "last_transcript" in data["user"]:
-        user_transcript = data["user"]["last_transcript"]
-        log(f"📤 Retrieved USER transcript for {call_sid}: \"{user_transcript}\"")
-        return user_transcript
+    if data and "user_transcript" in data:
+        log(f"📤 Retrieved transcript for {call_sid}: \"{data['user_transcript']}\"")
+        return data["user_transcript"]
     else:
-        log(f"⚠️ No USER transcript found for {call_sid}")
-        return ""
-        
-def get_last_gpt_response(call_sid: str):
-    data = session_memory.get(call_sid)
-    if data and "gpt" in data and "last_response" in data["gpt"]:
-        gpt_response = data["gpt"]["last_response"]
-        log(f"🤖 Retrieved last GPT response for {call_sid}: \"{gpt_response}\"")
-        return gpt_response
-    return ""
+        log(f"⚠️ No transcript found for {call_sid} — returning default greeting.")
+        return "Hello, how can i assist you today?"
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
 
-    # 🔹 Look inside the new "meta" dict
-    if data and "meta" in data and "audio_path" in data["meta"]:
-        audio_path = data["meta"]["audio_path"]
-        log(f"🎧 Retrieved audio path for {call_sid}: {audio_path}")
-        return audio_path
+    if data and "audio_path" in data:
+        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
+        return data["audio_path"]
     else:
         logging.error(f"❌ No audio path found for {call_sid} in session memory.")
         return None
-        
+
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
@@ -192,33 +166,24 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-          
-    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_user_transcript(call_sid)
-    gpt_text = None  # Always define it early to avoid unbound errors
 
+    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    gpt_input = get_last_transcript_for_this_call(call_sid)
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
 
-    if not gpt_input:
+    fallback_phrases = {
+        "", "hello", "hi",
+        "hello, what can i help you with?",
+        "[gpt failed to respond]",
+    }
+    if not gpt_input or gpt_input.strip().lower() in fallback_phrases:
+        print("🚫 No real transcript yet ➜ using default greeting.")
         gpt_text = "Hello, how can I help you today?"
     else:
         gpt_text = await get_gpt_response(gpt_input)
+        print(f"✅ GPT response: \"{gpt_text}\"")
 
-    print(f"✅ GPT response: \"{gpt_text}\"")
-
-    # ⬇️ PLACE IT HERE, after gpt_text is guaranteed to exist
-    if not gpt_text:
-        vr = VoiceResponse()
-        start = Start()
-        start.stream(
-            url="wss://silent-sound-1030.fly.dev/media",
-            content_type="audio/x-mulaw;rate=8000"
-        )
-        vr.append(start)
-        log("🔄 Holding open connection for future user speech.")
-        return Response(content=str(vr), media_type="application/xml")
-        
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
@@ -284,7 +249,7 @@ async def twilio_voice_webhook(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        save_gpt_transcript(call_sid, gpt_response=gpt_text, audio_path=converted_path)
+        save_transcript(call_sid, gpt_text, converted_path)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -353,8 +318,7 @@ async def media_stream(ws: WebSocket):
                 "endpointing": 800  # 🟢 Wait 800ms of silence before finalizing
                 }
             
-            dg_connection = await deepgram.listen.live.v("1")
-
+            dg_connection = await asyncio.to_thread(live_client.v, "1", deepgram_options)
         except Exception as e:
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
@@ -390,7 +354,7 @@ async def media_stream(ws: WebSocket):
                             last_transcript["is_final"] = payload.get("is_final", False)
                             
                             if call_sid_holder["sid"]:
-                                save_user_transcript(call_sid_holder["sid"], user_transcript=sentence)
+                                save_transcript(call_sid_holder["sid"], sentence)
                                 
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
@@ -431,7 +395,7 @@ async def media_stream(ws: WebSocket):
                     
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("meta", {}).get("audio_path")
+                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
