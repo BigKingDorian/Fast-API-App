@@ -176,13 +176,12 @@ async def twilio_voice_webhook(request: Request):
         vr = VoiceResponse()
         vr.redirect("/greeting")
         print("👋 First-time caller — redirecting to greeting handler.")
-        return Response(content=str(vr), media_type="application/xml"
+        return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = get_last_transcript_for_this_call(call_sid)
+    gpt_input = await get_last_transcript_for_this_call(call_sid)
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
-
     gpt_text = await get_gpt_response(gpt_input)
     print(f"✅ GPT response: \"{gpt_text}\"")
 
