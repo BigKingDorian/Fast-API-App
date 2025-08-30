@@ -302,8 +302,8 @@ async def greeting_rout(request: Request):
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
     # ── 2. 1 TIME GREETING ───────────────────────────────────────
-        gpt_text = "Hello my name is Lotus, how can I help you today?"        
-        print(f"✅ GPT greeting: \"{gpt_text}\"")
+    gpt_text = "Hello my name is Lotus, how can I help you today?"        
+    print(f"✅ GPT greeting: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
