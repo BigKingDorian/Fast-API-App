@@ -87,15 +87,17 @@ def get_last_audio_for_call(call_sid):
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
+        safe_text = "" if user_text is None else str(user_text)
+        if not safe_text.strip():
+            safe_text = "Hello, how can I help you today?"
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
-                {"role": "user", "content": user_text}
+                {"role": "user", "content": safe_text}
             ]
         )
-        return response.choices[0].message.content
-
+        return response.choices[0].message.content or "[GPT returned empty message]"
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
@@ -474,10 +476,11 @@ async def media_stream(ws: WebSocket):
                             last_transcript["is_final"] = payload.get("is_final", False)
                             
                             if call_sid_holder["sid"]:
-                                save_transcript(call_sid, user_transcript=sentence)
-                                
-                                # ✅ Mark the session as ready for playback in the POST route
-                                session_memory[call_sid_holder["sid"]]["ready"] = True
+                                sid = call_sid_holder["sid"]
+                                save_transcript(sid, user_transcript=sentence)
+                                session_memory.setdefault(sid, {})            # ensure dict exists
+                                session_memory[sid]["ready"] = True
+
                                 print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
 
                     except KeyError as e:
