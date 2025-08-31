@@ -202,8 +202,7 @@ if not isinstance(gpt_input, str) or not gpt_input.strip():
     gpt_text = "Hello, how can I help you today?"
 else:
     gpt_text = await get_gpt_response(gpt_input)
-
-print(f"✅ GPT response: \"{gpt_text}\"")
+    print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
