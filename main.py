@@ -205,7 +205,6 @@ else:
 
 print(f"✅ GPT response: \"{gpt_text}\"")
 
-
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
