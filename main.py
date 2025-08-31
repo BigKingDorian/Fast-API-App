@@ -197,12 +197,12 @@ async def twilio_voice_webhook(request: Request):
         print("⏰ Timed out waiting for new transcript.")
         gpt_input = None
 
-if not isinstance(gpt_input, str) or not gpt_input.strip():
-    print("🚫 No usable transcript ➜ default fallback message.")
-    gpt_text = "Hello, how can I help you today?"
-else:
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"✅ GPT response: \"{gpt_text}\"")
+    if not isinstance(gpt_input, str) or not gpt_input.strip():
+        print("🚫 No usable transcript ➜ default fallback message.")
+        gpt_text = "Hello, how can I help you today?"
+    else:
+        gpt_text = await get_gpt_response(gpt_input)
+        print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
