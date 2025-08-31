@@ -67,12 +67,12 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
-    for i in range(80):
+    # Wait indefinitely (or until Twilio times out)
+    while True:
         data = session_memory.get(call_sid)
         if data and data.get("user_transcript"):
             return data["user_transcript"]
-        await asyncio.sleep(0.1)
-    return None
+        await asyncio.sleep(0.1)  # small delay to avoid busy-wait
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
