@@ -67,7 +67,7 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
-    for i in range(40):
+    for i in range(80):
         data = session_memory.get(call_sid)
         if data and data.get("user_transcript"):
             return data["user_transcript"]
