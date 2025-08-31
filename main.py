@@ -67,10 +67,11 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
-    for i in range(40):
+    for i in range(40):  # wait up to 4s
         data = session_memory.get(call_sid)
-        if data and data.get("user_transcript"):
-            return data["user_transcript"]
+        transcript = data.get("user_transcript") if data else None
+        if transcript and transcript.strip():
+            return transcript
         await asyncio.sleep(0.1)
     return None
 
@@ -87,14 +88,13 @@ def get_last_audio_for_call(call_sid):
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
-        safe_text = "" if user_text is None else str(user_text)
-        if not safe_text.strip():
-            safe_text = "Hello, how can I help you today?"
+        if not user_text or not user_text.strip():
+            raise ValueError("🛑 GPT called with empty input")
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
-                {"role": "user", "content": safe_text}
+                {"role": "user", "content": user_text}
             ]
         )
         return response.choices[0].message.content or "[GPT returned empty message]"
@@ -181,10 +181,15 @@ async def twilio_voice_webhook(request: Request):
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     gpt_input = await get_last_transcript_for_this_call(call_sid)
-    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"✅ GPT response: \"{gpt_text}\"")
+
+    if not gpt_input:
+        print("❌ No valid transcript received. Skipping GPT call.")
+        # Optionally say something like: "I didn't catch that, can you repeat?"
+        gpt_text = "Sorry, I didn't catch that. Could you please repeat?"
+    else:
+        gpt_text = await get_gpt_response(gpt_input)
+        session_memory[call_sid]["user_transcript"] = None  # ✅ clear it
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
