@@ -186,6 +186,9 @@ async def twilio_voice_webhook(request: Request):
     gpt_text = await get_gpt_response(gpt_input)
     print(f"✅ GPT response: \"{gpt_text}\"")
 
+    # 🧼 Clear the transcript to avoid reuse in next round
+    session_memory[call_sid]["user_transcript"] = None
+
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
