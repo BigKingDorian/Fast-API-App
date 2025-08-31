@@ -57,18 +57,14 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
-    session = session_memory.setdefault(call_sid, {})
-
+    if call_sid not in session_memory:
+        session_memory[call_sid] = {}
     if user_transcript:
-        # Save a list of recent transcripts
-        session.setdefault("recent_transcripts", []).append(user_transcript)
-        session["user_transcript"] = user_transcript  # keep for backward compat
-        session["new_transcript_ready"] = True
-
+        session_memory[call_sid]["user_transcript"] = user_transcript
     if gpt_response:
-        session["gpt_response"] = gpt_response
+        session_memory[call_sid]["gpt_response"] = gpt_response
     if audio_path:
-        session["audio_path"] = audio_path
+        session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
     for i in range(40):
@@ -183,26 +179,12 @@ async def twilio_voice_webhook(request: Request):
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # ── 2. WAIT FOR NEW FINALIZED TRANSCRIPT (max 4s) ──────────────────────────
-    print("⏳ Waiting for finalized transcript...")
-    for _ in range(40):  # wait up to 4 seconds
-        data = session_memory.get(call_sid, {})
-        if data.get("new_transcript_ready"):
-            data["new_transcript_ready"] = False
-            gpt_input = data.get("user_transcript")
-            print(f"📝 New finalized GPT input: \"{gpt_input}\"")
-            break
-        await asyncio.sleep(0.1)
-    else:
-        print("⏰ Timed out waiting for new transcript.")
-        gpt_input = None
-
-    if not isinstance(gpt_input, str) or not gpt_input.strip():
-        print("🚫 No usable transcript ➜ default fallback message.")
-        gpt_text = "Hello, how can I help you today?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
-        print(f"✅ GPT response: \"{gpt_text}\"")
+    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    gpt_input = await get_last_transcript_for_this_call(call_sid)
+    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    gpt_text = await get_gpt_response(gpt_input)
+    print(f"✅ GPT response: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
