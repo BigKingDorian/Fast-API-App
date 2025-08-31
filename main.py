@@ -67,11 +67,10 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
-    for i in range(40):  # wait up to 4s
+    for i in range(40):
         data = session_memory.get(call_sid)
-        transcript = data.get("user_transcript") if data else None
-        if transcript and transcript.strip():
-            return transcript
+        if data and data.get("user_transcript"):
+            return data["user_transcript"]
         await asyncio.sleep(0.1)
     return None
 
@@ -88,13 +87,14 @@ def get_last_audio_for_call(call_sid):
 # ✅ GPT handler function
 async def get_gpt_response(user_text: str) -> str:
     try:
-        if not user_text or not user_text.strip():
-            raise ValueError("🛑 GPT called with empty input")
+        safe_text = "" if user_text is None else str(user_text)
+        if not safe_text.strip():
+            safe_text = "Hello, how can I help you today?"
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
-                {"role": "user", "content": user_text}
+                {"role": "user", "content": safe_text}
             ]
         )
         return response.choices[0].message.content or "[GPT returned empty message]"
@@ -180,25 +180,14 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    # Wait for finalized transcript — max 4s
-    for _ in range(40):
-        data = session_memory.get(call_sid, {})
-        gpt_input = data.get("user_transcript")
-        if gpt_input and gpt_input.strip():
-            break
-        await asyncio.sleep(0.1)
-    else:
-        print("⏳ No transcript received after 4s. Skipping GPT.")
-        gpt_input = None
+    gpt_input = await get_last_transcript_for_this_call(call_sid)
+    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    gpt_text = await get_gpt_response(gpt_input)
+    print(f"✅ GPT response: \"{gpt_text}\"")
 
-    if not gpt_input:
-        # Optional: play nothing or a neutral prompt
-        print("🤐 Skipping GPT — no input.")
-        return Response("", media_type="application/xml")  # Return empty TwiML
-    else:
-        print(f"📝 GPT input candidate: \"{gpt_input}\"")
-        gpt_text = await get_gpt_response(gpt_input)
-        session_memory[call_sid]["user_transcript"] = None  # clear after use
+    # 🧼 Clear the transcript to avoid reuse in next round
+    session_memory[call_sid]["user_transcript"] = None
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
