@@ -56,16 +56,15 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def save_transcript(call_sid, user_transcript=None, audio_path=None):
+def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
-        log(f"🆕 Initialized session_memory for call {call_sid}")
     if user_transcript:
         session_memory[call_sid]["user_transcript"] = user_transcript
-        log(f"💾 User Transcript saved for {call_sid}: \"{user_transcript}\"")
+    if gpt_response:
+        session_memory[call_sid]["gpt_response"] = gpt_response
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
-        log(f"🎧 Audio path saved for {call_sid}: {audio_path}")
         
 async def get_last_transcript_for_this_call(call_sid):
     for i in range(40):
@@ -250,7 +249,7 @@ async def twilio_voice_webhook(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        save_transcript(call_sid, gpt_text, converted_path)
+        save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -370,7 +369,7 @@ async def greeting_rout(request: Request):
     log("✅ Audio file saved at %s", converted_path)
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        save_transcript(call_sid, gpt_text, converted_path)
+        save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -475,7 +474,7 @@ async def media_stream(ws: WebSocket):
                             last_transcript["is_final"] = payload.get("is_final", False)
                             
                             if call_sid_holder["sid"]:
-                                save_transcript(call_sid_holder["sid"], sentence)
+                                save_transcript(call_sid, user_transcript=sentence)
                                 
                                 # ✅ Mark the session as ready for playback in the POST route
                                 session_memory[call_sid_holder["sid"]]["ready"] = True
