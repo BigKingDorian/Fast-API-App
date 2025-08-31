@@ -180,19 +180,25 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = await get_last_transcript_for_this_call(call_sid)
-    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    # Wait for finalized transcript — max 4s
+    for _ in range(40):
+        data = session_memory.get(call_sid, {})
+        gpt_input = data.get("user_transcript")
+        if gpt_input and gpt_input.strip():
+            break
+        await asyncio.sleep(0.1)
+    else:
+        print("⏳ No transcript received after 4s. Skipping GPT.")
+        gpt_input = None
 
     if not gpt_input:
-        print("❌ No valid transcript received. Skipping GPT call.")
-        # Optionally say something like: "I didn't catch that, can you repeat?"
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat?"
+        # Optional: play nothing or a neutral prompt
+        print("🤐 Skipping GPT — no input.")
+        return Response("", media_type="application/xml")  # Return empty TwiML
     else:
+        print(f"📝 GPT input candidate: \"{gpt_input}\"")
         gpt_text = await get_gpt_response(gpt_input)
-        session_memory[call_sid]["user_transcript"] = None  # ✅ clear it
-
-    # 🧼 Clear the transcript to avoid reuse in next round
-    session_memory[call_sid]["user_transcript"] = None
+        session_memory[call_sid]["user_transcript"] = None  # clear after use
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
