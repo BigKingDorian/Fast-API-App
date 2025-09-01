@@ -503,13 +503,13 @@ async def media_stream(ws: WebSocket):
                                 session_memory[sid]["transcript_ready"] = True  # ✅ new flag
                                 session_memory[sid]["transcript_version"] = time.time()
 
-                        elif is_final:
-                            print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
-                                if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
-                                session_memory.setdefault(sid, {})
-                                session_memory[sid]["user_transcript"] = None  # or blank
-                                session_memory[sid]["transcript_ready"] = True
+                            elif is_final:
+                                print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
+                                    if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    session_memory.setdefault(sid, {})
+                                    session_memory[sid]["user_transcript"] = None  # or blank
+                                    session_memory[sid]["transcript_ready"] = True
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
