@@ -487,14 +487,14 @@ async def media_stream(ws: WebSocket):
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
 
-                                if call_sid_holder["sid"]:
-                                    sid = call_sid_holder["sid"]
-                                    save_transcript(sid, user_transcript=sentence)
-                                    session_memory.setdefault(sid, {})  # ensure dict exists
-                                    session_memory[sid]["ready"] = True
-                                    session_memory[sid]["transcript_version"] = time.time()
+                            if call_sid_holder["sid"]:
+                                sid = call_sid_holder["sid"]
+                                save_transcript(sid, user_transcript=sentence)
+                                session_memory.setdefault(sid, {})  # ensure dict exists
+                                session_memory[sid]["ready"] = True
+                                session_memory[sid]["transcript_version"] = time.time()
 
-                                    print(f"✅ [WS] Marked call {sid} as ready with finalized transcript")
+                                print(f"✅ [WS] Marked call {sid} as ready with finalized transcript")
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
