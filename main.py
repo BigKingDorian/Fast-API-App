@@ -505,7 +505,7 @@ async def media_stream(ws: WebSocket):
 
                             elif is_final:
                                 print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
-                                    if call_sid_holder["sid"]:
+                                if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
                                     session_memory[sid]["user_transcript"] = None  # or blank
