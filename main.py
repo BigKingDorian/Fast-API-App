@@ -69,16 +69,15 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
         
-async def get_last_transcript_for_this_call(call_sid, last_known_version=None, timeout=10):
+async def get_last_transcript_for_this_call(call_sid, timeout=10):
     start = time.time()
     while time.time() - start < timeout:
-        data = session_memory.get(call_sid)
-        if data and data.get("user_transcript"):
-            version = data.get("transcript_version", 0)
-            if last_known_version is None or version > last_known_version:
-                return data["user_transcript"], version
+        session = session_memory.get(call_sid, {})
+        if session.get("transcript_ready") and session.get("user_transcript"):
+            session["transcript_ready"] = False  # reset the flag
+            return session["user_transcript"]
         await asyncio.sleep(0.1)
-    return None, None  # Timeout fallback
+    return None
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -189,7 +188,7 @@ async def twilio_voice_webhook(request: Request):
     # Before waiting for new transcript
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
-    gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version, timeout=10)
+   gpt_input = await get_last_transcript_for_this_call(call_sid, timeout=10)
     if not gpt_input or len(gpt_input.strip()) < 4:
         print("⚠️ Transcript too short, missing, or timed out — asking user to repeat")
         gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
@@ -495,6 +494,7 @@ async def media_stream(ws: WebSocket):
                                 save_transcript(sid, user_transcript=sentence)
                                 session_memory.setdefault(sid, {})
                                 session_memory[sid]["ready"] = True
+                                session_memory[sid]["transcript_ready"] = True  # ✅ new flag
                                 session_memory[sid]["transcript_version"] = time.time()
 
                         elif is_final:
