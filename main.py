@@ -189,7 +189,7 @@ async def twilio_voice_webhook(request: Request):
     # Before waiting for new transcript
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
-   gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version, timeout=10)
+    gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version, timeout=10)
     if not gpt_input or len(gpt_input.strip()) < 4:
         print("⚠️ Transcript too short, missing, or timed out — asking user to repeat")
         gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
