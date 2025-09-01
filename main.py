@@ -59,20 +59,24 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
+
     if user_transcript:
         session_memory[call_sid]["user_transcript"] = user_transcript
+        session_memory[call_sid]["transcript_version"] = time.time()  # 👈 Add this line
+
     if gpt_response:
         session_memory[call_sid]["gpt_response"] = gpt_response
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
         
-async def get_last_transcript_for_this_call(call_sid):
-    # Wait indefinitely (or until Twilio times out)
+async def get_last_transcript_for_this_call(call_sid, last_known_version=None):
     while True:
         data = session_memory.get(call_sid)
         if data and data.get("user_transcript"):
-            return data["user_transcript"]
-        await asyncio.sleep(0.1)  # small delay to avoid busy-wait
+            version = data.get("transcript_version", 0)
+            if last_known_version is None or version > last_known_version:
+                return data["user_transcript"], version
+        await asyncio.sleep(0.1)
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -180,7 +184,10 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    gpt_input = await get_last_transcript_for_this_call(call_sid)
+    # Before waiting for new transcript
+    last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+    # Wait for a newer one
+    gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
     print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
     gpt_text = await get_gpt_response(gpt_input)
@@ -188,6 +195,7 @@ async def twilio_voice_webhook(request: Request):
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
+    session_memory[call_sid]["transcript_version"] = 0
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
