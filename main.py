@@ -479,20 +479,22 @@ async def media_stream(ws: WebSocket):
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
                         
-                        if sentence:
-                            print(f"📝 {sentence} (confidence: {confidence})")
+                        if is_final and sentence.strip() and confidence >= 0.6:
+                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
+    
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = payload.get("is_final", False)
-                            
-                            if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
-                                save_transcript(sid, user_transcript=sentence)
-                                session_memory.setdefault(sid, {})            # ensure dict exists
-                                session_memory[sid]["ready"] = True
+                            last_transcript["is_final"] = True
 
-                                print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
+                                if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    save_transcript(sid, user_transcript=sentence)
+                                    session_memory.setdefault(sid, {})  # ensure dict exists
+                                    session_memory[sid]["ready"] = True
+                                    session_memory[sid]["transcript_version"] = time.time()
+
+                                    print(f"✅ [WS] Marked call {sid} as ready with finalized transcript")
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
