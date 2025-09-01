@@ -70,11 +70,16 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["audio_path"] = audio_path
         
 async def get_last_transcript_for_this_call(call_sid):
-    print("🕐 Waiting for finished['done'] flag...")
-    while not finished.get("done", False):
+    print("🕐 Waiting for session_memory['ready'] flag...")
+    for _ in range(100):  # wait up to ~10 seconds (100 × 0.1s)
+        if session_memory.get(call_sid, {}).get("ready", False):
+            print("✅ 'ready' flag detected. Proceeding...")
+            break
         await asyncio.sleep(0.1)
-
-    print("✅ Flag detected. Waiting for user_transcript...")
+    else:
+        print("❌ Timeout waiting for 'ready' flag.")
+        return "", 0
+    # Now wait for the transcript to appear
     for _ in range(100):
         data = session_memory.get(call_sid)
         if data and "user_transcript" in data:
@@ -82,7 +87,6 @@ async def get_last_transcript_for_this_call(call_sid):
             version = data.get("transcript_version", 0)
             return data["user_transcript"], version
         await asyncio.sleep(0.1)
-
     print("❌ Timed out waiting for user_transcript.")
     return "", 0
 
@@ -205,7 +209,8 @@ async def twilio_voice_webhook(request: Request):
     else:
         gpt_text = await get_gpt_response(gpt_input)
 
-    # 🧼 Clear the transcript to avoid reuse in next round
+    # Clear flags and transcript to avoid reuse
+    session_memory[call_sid]["ready"] = False
     session_memory[call_sid]["user_transcript"] = None
     session_memory[call_sid]["transcript_version"] = 0
 
