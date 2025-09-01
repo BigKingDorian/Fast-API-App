@@ -94,7 +94,7 @@ async def get_gpt_response(user_text: str) -> str:
     try:
         safe_text = "" if user_text is None else str(user_text)
         if not safe_text.strip():
-            safe_text = "Hello, how can I help you today?"
+            safe_text = "Sorry, I didn't catch that. Could you say it again?"
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -189,11 +189,15 @@ async def twilio_voice_webhook(request: Request):
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
     gpt_input = await get_last_transcript_for_this_call(call_sid, timeout=10)
-    if not gpt_input or len(gpt_input.strip()) < 4:
-        print("⚠️ Transcript too short, missing, or timed out — asking user to repeat")
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
+    print(f"📝 Transcript from memory: {repr(gpt_input)}")
+        if gpt_input is None or not isinstance(gpt_input, str) or len(gpt_input.strip()) < 4:
+            print("🚫 Invalid, missing, or too short transcript — skipping GPT")
+            gpt_text = "Sorry, I didn't catch that. Could you please repeat your question?"
+        else:
+            try:
+                gpt_text = await get_gpt_response(gpt_input)
+                print(f"🤖 GPT Response: {gpt_text}")
+            except Exception as e:
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
@@ -499,6 +503,11 @@ async def media_stream(ws: WebSocket):
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
+                                if call_sid_holder["sid"]:
+                                sid = call_sid_holder["sid"]
+                                session_memory.setdefault(sid, {})
+                                session_memory[sid]["user_transcript"] = None  # or blank
+                                session_memory[sid]["transcript_ready"] = True
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
