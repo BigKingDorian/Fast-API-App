@@ -69,15 +69,14 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
         
-async def get_last_transcript_for_this_call(call_sid, timeout=10):
-    start = time.time()
-    while time.time() - start < timeout:
-        session = session_memory.get(call_sid, {})
-        if session.get("transcript_ready") and session.get("user_transcript"):
-            session["transcript_ready"] = False  # reset the flag
-            return session["user_transcript"]
+async def get_last_transcript_for_this_call(call_sid, last_known_version=None):
+    while True:
+        data = session_memory.get(call_sid)
+        if data and data.get("user_transcript"):
+            version = data.get("transcript_version", 0)
+            if last_known_version is None or version > last_known_version:
+                return data["user_transcript"], version
         await asyncio.sleep(0.1)
-    return None
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -94,7 +93,7 @@ async def get_gpt_response(user_text: str) -> str:
     try:
         safe_text = "" if user_text is None else str(user_text)
         if not safe_text.strip():
-            safe_text = "Sorry, I didn't catch that. Could you say it again?"
+            safe_text = "Hello, how can I help you today?"
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -188,18 +187,15 @@ async def twilio_voice_webhook(request: Request):
     # Before waiting for new transcript
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
-    gpt_input = await get_last_transcript_for_this_call(call_sid, timeout=10)
-    print(f"📝 Transcript from memory: {repr(gpt_input)}")
-    if gpt_input is None or not isinstance(gpt_input, str) or len(gpt_input.strip()) < 4:
-        print("🚫 Invalid, missing, or too short transcript — skipping GPT")
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat your question?"
+    gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
+    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+
+    # Simple transcript quality check
+    if not gpt_input or len(gpt_input.strip()) < 4:
+        print("⚠️ Transcript too short or missing — asking user to repeat")
+        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
     else:
-        try:
-            gpt_text = await get_gpt_response(gpt_input)
-            print(f"🤖 GPT Response: {gpt_text}")
-        except Exception as e:
-            print(f"❌ GPT failed to respond: {e}")
-            gpt_text = "Sorry, I had trouble responding. Can you try again?"
+        gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
@@ -500,16 +496,10 @@ async def media_stream(ws: WebSocket):
                                 save_transcript(sid, user_transcript=sentence)
                                 session_memory.setdefault(sid, {})
                                 session_memory[sid]["ready"] = True
-                                session_memory[sid]["transcript_ready"] = True  # ✅ new flag
                                 session_memory[sid]["transcript_version"] = time.time()
 
-                            elif is_final:
-                                print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
-                                if call_sid_holder["sid"]:
-                                    sid = call_sid_holder["sid"]
-                                    session_memory.setdefault(sid, {})
-                                    session_memory[sid]["user_transcript"] = None  # or blank
-                                    session_memory[sid]["transcript_ready"] = True
+                        elif is_final:
+                            print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
