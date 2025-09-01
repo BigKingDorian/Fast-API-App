@@ -188,10 +188,14 @@ async def twilio_voice_webhook(request: Request):
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
     gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
-    print(f"🗄️ Session snapshot BEFORE GPT: {session_memory.get(call_sid)}")
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
-    gpt_text = await get_gpt_response(gpt_input)
-    print(f"✅ GPT response: \"{gpt_text}\"")
+
+    # Simple transcript quality check
+    if not gpt_input or len(gpt_input.strip()) < 4:
+        print("⚠️ Transcript too short or missing — asking user to repeat")
+        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
+    else:
+        gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
@@ -479,20 +483,23 @@ async def media_stream(ws: WebSocket):
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
                         
-                        if sentence:
-                            print(f"📝 {sentence} (confidence: {confidence})")
+                        if is_final and sentence.strip() and confidence >= 0.6:
+                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
+
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = payload.get("is_final", False)
-                            
+                            last_transcript["is_final"] = True
+
                             if call_sid_holder["sid"]:
                                 sid = call_sid_holder["sid"]
                                 save_transcript(sid, user_transcript=sentence)
-                                session_memory.setdefault(sid, {})            # ensure dict exists
+                                session_memory.setdefault(sid, {})
                                 session_memory[sid]["ready"] = True
+                                session_memory[sid]["transcript_version"] = time.time()
 
-                                print(f"✅ [WS] Marked call {call_sid_holder['sid']} as ready")
+                        elif is_final:
+                            print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
