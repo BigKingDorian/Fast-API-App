@@ -193,11 +193,13 @@ async def twilio_voice_webhook(request: Request):
     if gpt_input is None or not isinstance(gpt_input, str) or len(gpt_input.strip()) < 4:
         print("🚫 Invalid, missing, or too short transcript — skipping GPT")
         gpt_text = "Sorry, I didn't catch that. Could you please repeat your question?"
-    else:
+       else:
         try:
             gpt_text = await get_gpt_response(gpt_input)
             print(f"🤖 GPT Response: {gpt_text}")
         except Exception as e:
+            print(f"❌ GPT failed to respond: {e}")
+            gpt_text = "Sorry, I had trouble responding. Can you try again?"
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
