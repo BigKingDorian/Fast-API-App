@@ -297,7 +297,6 @@ async def twilio_voice_webhook(request: Request):
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
-        print(f"🔊 [POST] About to send vr.play() at: {time.time()}")
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
@@ -586,7 +585,6 @@ async def media_stream(ws: WebSocket):
                     
                 elif event == "media":
                     print("📡 Media event received")
-                    print(f"📡 [WS] Stream is active — media received at: {time.time()}")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
