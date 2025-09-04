@@ -491,7 +491,7 @@ async def media_stream(ws: WebSocket):
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
-                            last_transcript["speech_final"] = speech_final
+                            last_transcript["speech_final"] = True
 
                             if call_sid_holder["sid"]:
                                 sid = call_sid_holder["sid"]
