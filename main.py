@@ -436,7 +436,7 @@ async def media_stream(ws: WebSocket):
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
-    last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
+    last_transcript = {"text": "", "confidence": 0.5, "is_final": False,"speech_final": False}
     finished = {"done": False}
     
     loop = asyncio.get_running_loop()
@@ -482,14 +482,16 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
-                        
-                        if is_final and sentence.strip() and confidence >= 0.6:
+                        speech_final = payload["speech_final"] if "speech_final" in payload else False
+ 
+                        if is_final and speech_final and sentence.strip() and confidence >= 0.6:
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
+                            last_transcript["speech_final"] = payload.get("speech_final", False)
 
                             if call_sid_holder["sid"]:
                                 sid = call_sid_holder["sid"]
@@ -500,6 +502,8 @@ async def media_stream(ws: WebSocket):
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
+                        elif speech_final:
+                            print(f"⚠️ Speech finalized, but no confident or final transcript found: \"{sentence}\" (confidence: {confidence})")
 
                     except KeyError as e:
                         print(f"⚠️ Missing expected key in payload: {e}")
@@ -529,8 +533,10 @@ async def media_stream(ws: WebSocket):
                 if (
                     elapsed > 2.0 and
                     last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False)
+                    last_transcript.get("is_final", False) and
+                    last_transcript.get("speech_final", False)
                 ):
+
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
                     
