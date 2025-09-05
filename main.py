@@ -436,9 +436,10 @@ async def media_stream(ws: WebSocket):
 
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
-    last_transcript = {"text": "", "confidence": 0.5, "is_final": False,"speech_final": False}
+    last_transcript = {"text": "", "confidence": 0.5, "is_final": False, "speech_final": False}
     finished = {"done": False}
-    
+    utter_buf = {"text": []}
+
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
@@ -483,22 +484,40 @@ async def media_stream(ws: WebSocket):
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
                         speech_final = payload["speech_final"] if "speech_final" in payload else False
- 
-                        if is_final and speech_final and sentence.strip() and confidence >= 0.6:
-                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
+                        if sentence.strip():
                             last_input_time["ts"] = time.time()
+
+
+                        # ✅ accumulate chunks until we see an endpoint
+                        if is_final and sentence:
+                            utter_buf["text"].append(sentence)
+
+
+                        if speech_final:
+                            # combine all accumulated finals into one utterance
+                            full_utterance = " ".join(utter_buf["text"]).strip() or sentence.strip()
+                            utter_buf["text"].clear()
+
+
+                            if full_utterance:
+                                last_transcript.update({
+                                    "text": full_utterance,
+                                    "confidence": confidence,
+                                    "is_final": True,
+                                    "speech_final": True
+                                })
+                                if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    save_transcript(sid, user_transcript=full_utterance)
+                                    session_memory.setdefault(sid, {})
+                                    session_memory[sid]["ready"] = True
+                                    session_memory[sid]["transcript_version"] = time.time()
+
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
                             last_transcript["speech_final"] = True
-
-                            if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
-                                save_transcript(sid, user_transcript=sentence)
-                                session_memory.setdefault(sid, {})
-                                session_memory[sid]["ready"] = True
-                                session_memory[sid]["transcript_version"] = time.time()
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
@@ -520,7 +539,10 @@ async def media_stream(ws: WebSocket):
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
+            interim_results=True,   # ✅ turn on interim
+            endpointing=1500        # ✅ 1.5s required pause before endpoint
         )
+
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
@@ -529,13 +551,12 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-        
-                if (
-                    elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False) and
-                    last_transcript.get("speech_final", False)
-                ):
+
+                # waits for endpoint + silence tolerance ~0.6s
+                if last_transcript.get("speech_final") and elapsed > 0.6:
+                    print("✅ Endpoint + silence tolerance reached")
+                    finished["done"] = True
+                    break   # optional: exit the loop immediately
 
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
@@ -594,7 +615,6 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
-                        last_input_time["ts"] = time.time()
                         print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
