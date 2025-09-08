@@ -519,9 +519,6 @@ async def media_stream(ws: WebSocket):
             utterance_end_ms=1200
         )
 
-        # 🟢 one-liner log for UtteranceEnd events
-        dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, print)
-
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
