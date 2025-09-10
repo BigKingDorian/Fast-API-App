@@ -517,8 +517,11 @@ async def media_stream(ws: WebSocket):
             sample_rate=8000,
             punctuate=True,
             utterance_end_ms=1200
+            vad_events=True
         )
 
+        dg_connection.on(LiveTranscriptionEvents.VadDetected, lambda *a, **k: print("📈 VAD Detected"))
+        
         dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, print)
         print("✏️ LiveOptions being sent:", options.__dict__)
 
