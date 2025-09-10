@@ -452,7 +452,6 @@ async def media_stream(ws: WebSocket):
             deepgram_options = {
                 "punctuate": True,
                 "interim_results": True,
-                "endpointing": 2000  # 🟢 Wait 2000ms of silence before finalizing
                 }
             
             dg_connection = await asyncio.to_thread(live_client.v, "1")
