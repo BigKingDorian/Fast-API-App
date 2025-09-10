@@ -520,11 +520,6 @@ async def media_stream(ws: WebSocket):
             vad_events=True
         )
 
-        dg_connection.on(LiveTranscriptionEvents.VadDetected, lambda *a, **k: print("📈 VAD Detected"))
-        
-        dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, print)
-        print("✏️ LiveOptions being sent:", options.__dict__)
-
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
