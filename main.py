@@ -516,7 +516,7 @@ async def media_stream(ws: WebSocket):
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
-            utterance_end_ms=1200
+            utterance_end_ms=1200,
             vad_events=True
         )
 
