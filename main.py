@@ -516,7 +516,6 @@ async def media_stream(ws: WebSocket):
             sample_rate=8000,
             punctuate=True,
             utterance_end_ms=1200,
-            vad_events=True
         )
 
         print("✏️ LiveOptions being sent:", options.__dict__)
