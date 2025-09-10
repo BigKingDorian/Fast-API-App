@@ -452,6 +452,7 @@ async def media_stream(ws: WebSocket):
             deepgram_options = {
                 "punctuate": True,
                 "interim_results": True,
+                "endpointing": 2000  # 🟢 Wait 2000ms of silence before finalizing
                 }
             
             dg_connection = await asyncio.to_thread(live_client.v, "1")
@@ -515,9 +516,7 @@ async def media_stream(ws: WebSocket):
             encoding="mulaw",
             sample_rate=8000,
             punctuate=True,
-            utterance_end_ms=1200,
         )
-
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
