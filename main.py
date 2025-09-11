@@ -564,10 +564,10 @@ async def media_stream(ws: WebSocket):
                         audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
-                                turn_locked["locked"] = False  # 🔓
-                                finished["done"] = False       # 🔄
-                                print("🔓 Turn unlocked — ready for next user input")
-                                break
+                            turn_locked["locked"] = False  # 🔓
+                            finished["done"] = False       # 🔄
+                            print("🔓 Turn unlocked — ready for next user input")
+                            break
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
