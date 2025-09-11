@@ -53,7 +53,7 @@ logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
 # 🔍 Quick alias for log
-log = logging.getLogger("app").info
+log = logging.info
 
 # ✅ Prove it’s working
 logger.info("✅ Log setup complete.")
