@@ -6,67 +6,39 @@ import asyncio
 import time
 import uuid
 import subprocess
-import requests  # ✅ For ElevenLabs API
+import requests  # ✅ Added for ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles  # ✅ For serving audio files
+from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 from openai import OpenAI
 from dotenv import load_dotenv
-from logging.handlers import RotatingFileHandler
+load_dotenv("/root/Fast-API-App/.env")
 
-# Detect which VM / container you’re on early
+# Detect which VM / container you’re on
 INSTANCE = (
-    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (production)
+    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (present in production)
     or os.getenv("HOSTNAME")       # Docker / Kubernetes fallback
     or os.uname().nodename         # last-resort fallback
 )
 
-# Ensure logs directory exists
-os.makedirs("logs", exist_ok=True)
+print(f"🆔 This app instance ID is: {INSTANCE}")
 
-# === ✅ LOGGING CONFIGURATION ===
-log_format = f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s"
-date_format = "%Y-%m-%d %H:%M:%S"
+# Configure the root logger
+logging.basicConfig(
+    level=logging.INFO,
+    format=f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
-# Set up rotating log file handler (10MB, keep 3 backups)
-file_handler = RotatingFileHandler("logs/app.log", maxBytes=10_000_000, backupCount=3)
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+log = logging.getLogger("app").info     # quick alias → use log(...)
 
-# Optional: Also log to terminal
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
-
-# Root logger setup (add both handlers)
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.DEBUG)  # Capture everything
-root_logger.addHandler(file_handler)
-root_logger.addHandler(console_handler)
-
-# === ✅ END LOGGING SETUP ===
-
-# ✅ Shortcuts for use
-log = logging.getLogger("app").info
-debug = logging.getLogger("app").debug
-error = logging.getLogger("app").error
-warn = logging.getLogger("app").warning
-
-# .env
-load_dotenv("/root/Fast-API-App/.env")
-
-# Confirm app instance
-log(f"🆔 This app instance ID is: {INSTANCE}")
-
-# === ✅ Load environment keys
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")  # ✅ Also needed
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
-# === ✅ Validate keys
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
@@ -74,13 +46,13 @@ if not OPENAI_API_KEY:
 if not ELEVENLABS_API_KEY:
     raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
-# ✅ Create OpenAI client
+# ✅ Create the OpenAI client after loading the env
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ✅ Session memory (in-memory store)
+# Simple in-memory session store
 session_memory = {}
 
-# ✅ FastAPI app + static route
+# ✅ Create FastAPI app and mount static audio folder
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -531,12 +503,6 @@ async def media_stream(ws: WebSocket):
 
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
-
-                                    # 👇 Add these 3 logs:
-                                    print(f"📦 Writing full_transcript to session_memory: \"{full_transcript}\"")
-                                    print(f"📅 Timestamp now: {time.time()}")
-                                    print(f"📅 Previous version: {session_memory.get(sid, {}).get('transcript_version', 0)}")
-
                                     session_memory.setdefault(sid, {})
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
