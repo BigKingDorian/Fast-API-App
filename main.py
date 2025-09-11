@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv("/root/Fast-API-App/.env")
 
 # 🗂️ Log file config
-LOG_DIR = "logs"
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 LOG_FILE = f"{LOG_DIR}/app.log"
 os.makedirs(LOG_DIR, exist_ok=True)
 
