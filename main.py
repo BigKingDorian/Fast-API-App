@@ -6,39 +6,67 @@ import asyncio
 import time
 import uuid
 import subprocess
-import requests  # ✅ Added for ElevenLabs API
+import requests  # ✅ For ElevenLabs API
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles  # ✅ Added for serving audio
+from fastapi.staticfiles import StaticFiles  # ✅ For serving audio files
 from twilio.twiml.voice_response import VoiceResponse, Start, Stream
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 from openai import OpenAI
 from dotenv import load_dotenv
-load_dotenv("/root/Fast-API-App/.env")
+from logging.handlers import RotatingFileHandler
 
-# Detect which VM / container you’re on
+# Detect which VM / container you’re on early
 INSTANCE = (
-    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (present in production)
+    os.getenv("FLY_ALLOC_ID")      # Fly.io VM ID (production)
     or os.getenv("HOSTNAME")       # Docker / Kubernetes fallback
     or os.uname().nodename         # last-resort fallback
 )
 
-print(f"🆔 This app instance ID is: {INSTANCE}")
+# Ensure logs directory exists
+os.makedirs("logs", exist_ok=True)
 
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format=f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+# === ✅ LOGGING CONFIGURATION ===
+log_format = f"[{INSTANCE}] %(asctime)s %(levelname)s: %(message)s"
+date_format = "%Y-%m-%d %H:%M:%S"
 
-log = logging.getLogger("app").info     # quick alias → use log(...)
+# Set up rotating log file handler (10MB, keep 3 backups)
+file_handler = RotatingFileHandler("logs/app.log", maxBytes=10_000_000, backupCount=3)
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
 
+# Optional: Also log to terminal
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(log_format, datefmt=date_format))
+
+# Root logger setup (add both handlers)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)  # Capture everything
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+# === ✅ END LOGGING SETUP ===
+
+# ✅ Shortcuts for use
+log = logging.getLogger("app").info
+debug = logging.getLogger("app").debug
+error = logging.getLogger("app").error
+warn = logging.getLogger("app").warning
+
+# .env
+load_dotenv("/root/Fast-API-App/.env")
+
+# Confirm app instance
+log(f"🆔 This app instance ID is: {INSTANCE}")
+
+# === ✅ Load environment keys
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")  # ✅ Also needed
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
+# === ✅ Validate keys
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
@@ -46,13 +74,13 @@ if not OPENAI_API_KEY:
 if not ELEVENLABS_API_KEY:
     raise RuntimeError("Missing ELEVENLABS_API_KEY in environment")
 
-# ✅ Create the OpenAI client after loading the env
+# ✅ Create OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Simple in-memory session store
+# ✅ Session memory (in-memory store)
 session_memory = {}
 
-# ✅ Create FastAPI app and mount static audio folder
+# ✅ FastAPI app + static route
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
