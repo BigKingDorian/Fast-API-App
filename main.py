@@ -438,7 +438,6 @@ async def media_stream(ws: WebSocket):
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
-    turn_locked = {"locked": False}  # 🔐 New lock flag
 
     final_transcripts = []
     
@@ -464,21 +463,6 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        def is_junk_transcript(sentence: str, is_final: bool, confidence: float, speech_final: bool) -> bool:
-            if not is_final:
-                print("⏸ Ignored: Not final.")
-                return True
-            if confidence < 0.75:
-                print(f"⚠️ Ignored: Low confidence ({confidence:.2f})")
-                return True
-            if len(sentence.strip().split()) < 2:
-                print(f"🧹 Ignored: Too short — \"{sentence}\"")
-                return True
-            if not speech_final:
-                print("⏱ Ignored: Speech not finalized yet.")
-                return True
-            return False  # ✅ Keep it
-        
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -503,7 +487,7 @@ async def media_stream(ws: WebSocket):
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
                         
-                        if not is_junk_transcript(sentence, is_final, confidence, speech_final):
+                        if is_final and sentence.strip() and confidence >= 0.6:
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
                             last_input_time["ts"] = time.time()
@@ -513,7 +497,7 @@ async def media_stream(ws: WebSocket):
 
                             final_transcripts.append(sentence)
 
-                            if speech_final and not turn_locked["locked"]:
+                            if speech_final:
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
 
@@ -526,16 +510,11 @@ async def media_stream(ws: WebSocket):
 
                                     save_transcript(sid, user_transcript=full_transcript)
 
-                                turn_locked["locked"] = True  # 🔐 Lock
-
-                                # ✅ Reset for next round
+                                # ✅ Clear after saving
                                 final_transcripts.clear()
                                 last_transcript["text"] = ""
                                 last_transcript["confidence"] = 0.0
                                 last_transcript["is_final"] = False
-
-                            elif speech_final and turn_locked["locked"]:
-                                print("🔒 Ignored speech_final — turn is locked.")
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
@@ -572,17 +551,12 @@ async def media_stream(ws: WebSocket):
                 ):
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
-
-                    last_transcript["is_final"] = False  # ✅ Prevent repeat triggering
                     
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
                         audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
-                            turn_locked["locked"] = False  # 🔓
-                            finished["done"] = False       # 🔄
-                            print("🔓 Turn unlocked — ready for next user input")
                             break
                         await asyncio.sleep(0.1)
                     else:
