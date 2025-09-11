@@ -558,6 +558,8 @@ async def media_stream(ws: WebSocket):
                 ):
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
+
+                    last_transcript["is_final"] = False  # ✅ Prevent repeat triggering
                     
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
