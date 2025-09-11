@@ -567,7 +567,7 @@ async def media_stream(ws: WebSocket):
                                 turn_locked["locked"] = False  # 🔓
                                 finished["done"] = False       # 🔄
                                 print("🔓 Turn unlocked — ready for next user input")
-                            break
+                                break
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
