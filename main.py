@@ -438,6 +438,8 @@ async def media_stream(ws: WebSocket):
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
+
+    final_transcripts = []
     
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
@@ -477,6 +479,8 @@ async def media_stream(ws: WebSocket):
                     payload = result.to_dict()
                     print(json.dumps(payload, indent=2))
 
+                    speech_final = payload.get("speech_final", False)
+
                     try:
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
@@ -491,12 +495,20 @@ async def media_stream(ws: WebSocket):
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
 
-                            if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
-                                save_transcript(sid, user_transcript=sentence)
-                                session_memory.setdefault(sid, {})
-                                session_memory[sid]["ready"] = True
-                                session_memory[sid]["transcript_version"] = time.time()
+                            final_transcripts.append(sentence)
+
+                            if speech_final:
+                                print("🧠 speech_final received — concatenating full transcript")
+                                full_transcript = " ".join(final_transcripts)
+
+                                if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    session_memory.setdefault(sid, {})
+                                    session_memory[sid]["user_transcript"] = full_transcript  # ⬅️ This is what GPT will use
+                                    session_memory[sid]["ready"] = True
+                                    session_memory[sid]["transcript_version"] = time.time()
+
+                                    save_transcript(sid, user_transcript=full_transcript)
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
