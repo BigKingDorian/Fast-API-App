@@ -464,6 +464,21 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
+        def is_junk_transcript(sentence: str, is_final: bool, confidence: float, speech_final: bool) -> bool:
+            if not is_final:
+                print("⏸ Ignored: Not final.")
+                return True
+            if confidence < 0.75:
+                print(f"⚠️ Ignored: Low confidence ({confidence:.2f})")
+                return True
+            if len(sentence.strip().split()) < 2:
+                print(f"🧹 Ignored: Too short — \"{sentence}\"")
+                return True
+            if not speech_final:
+                print("⏱ Ignored: Speech not finalized yet.")
+                return True
+            return False  # ✅ Keep it
+        
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -488,7 +503,7 @@ async def media_stream(ws: WebSocket):
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
                         
-                        if is_final and sentence.strip() and confidence >= 0.6:
+                        if not is_junk_transcript(sentence, is_final, confidence, speech_final):
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
                             last_input_time["ts"] = time.time()
@@ -511,17 +526,16 @@ async def media_stream(ws: WebSocket):
 
                                     save_transcript(sid, user_transcript=full_transcript)
 
-                                # 🔐 Lock the turn so nothing else gets processed until reset
-                                turn_locked["locked"] = True
+                                turn_locked["locked"] = True  # 🔐 Lock
 
-                                # ✅ Reset transcript state for next turn
+                                # ✅ Reset for next round
                                 final_transcripts.clear()
                                 last_transcript["text"] = ""
                                 last_transcript["confidence"] = 0.0
                                 last_transcript["is_final"] = False
-                            else:
-                                if speech_final and turn_locked["locked"]:
-                                    print("🔒 Ignored speech_final — turn is locked.")
+
+                            elif speech_final and turn_locked["locked"]:
+                                print("🔒 Ignored speech_final — turn is locked.")
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
