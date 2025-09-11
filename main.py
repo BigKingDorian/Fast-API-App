@@ -504,11 +504,17 @@ async def media_stream(ws: WebSocket):
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
-                                    session_memory[sid]["user_transcript"] = full_transcript  # ⬅️ This is what GPT will use
+                                    session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
 
                                     save_transcript(sid, user_transcript=full_transcript)
+
+                                # ✅ Clear after saving
+                                final_transcripts.clear()
+                                last_transcript["text"] = ""
+                                last_transcript["confidence"] = 0.0
+                                last_transcript["is_final"] = False
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
