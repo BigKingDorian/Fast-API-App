@@ -438,6 +438,7 @@ async def media_stream(ws: WebSocket):
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
     finished = {"done": False}
+    turn_locked = {"locked": False}  # 🔐 New lock flag
 
     final_transcripts = []
     
@@ -497,7 +498,7 @@ async def media_stream(ws: WebSocket):
 
                             final_transcripts.append(sentence)
 
-                            if speech_final:
+                            if speech_final and not turn_locked["locked"]:
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
 
@@ -510,11 +511,17 @@ async def media_stream(ws: WebSocket):
 
                                     save_transcript(sid, user_transcript=full_transcript)
 
-                                # ✅ Clear after saving
+                                # 🔐 Lock the turn so nothing else gets processed until reset
+                                turn_locked["locked"] = True
+
+                                # ✅ Reset transcript state for next turn
                                 final_transcripts.clear()
                                 last_transcript["text"] = ""
                                 last_transcript["confidence"] = 0.0
                                 last_transcript["is_final"] = False
+                            else:
+                                if speech_final and turn_locked["locked"]:
+                                    print("🔒 Ignored speech_final — turn is locked.")
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
@@ -557,6 +564,9 @@ async def media_stream(ws: WebSocket):
                         audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
+                                turn_locked["locked"] = False  # 🔓
+                                finished["done"] = False       # 🔄
+                                print("🔓 Turn unlocked — ready for next user input")
                             break
                         await asyncio.sleep(0.1)
                     else:
