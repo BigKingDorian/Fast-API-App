@@ -503,6 +503,12 @@ async def media_stream(ws: WebSocket):
 
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
+
+                                    # 👇 Add these 3 logs:
+                                    print(f"📦 Writing full_transcript to session_memory: \"{full_transcript}\"")
+                                    print(f"📅 Timestamp now: {time.time()}")
+                                    print(f"📅 Previous version: {session_memory.get(sid, {}).get('transcript_version', 0)}")
+
                                     session_memory.setdefault(sid, {})
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
