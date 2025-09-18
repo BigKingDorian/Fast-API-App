@@ -535,6 +535,11 @@ async def media_stream(ws: WebSocket):
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
 
+                                if not full_transcript:
+                                    print("⚠️ Skipping save — final transcript was empty")
+                                    final_transcripts.clear()
+                                    return  # ← prevent overwrite
+
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
