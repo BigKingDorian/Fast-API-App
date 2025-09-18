@@ -611,7 +611,6 @@ async def media_stream(ws: WebSocket):
 
                 try:
                     msg = json.loads(raw)
-                    print("📩 Incoming message:", msg.get("event"))
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
@@ -636,12 +635,10 @@ async def media_stream(ws: WebSocket):
                     print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
                     
                 elif event == "media":
-                    print("📡 Media event received")
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.send(payload)
                         last_input_time["ts"] = time.time()
-                        print(f"📦 Sent {len(payload)} bytes to Deepgram (event: media)")
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
