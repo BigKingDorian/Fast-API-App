@@ -223,6 +223,7 @@ async def twilio_voice_webhook(request: Request):
     # Wait for a newer one
     gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
 
     # Simple transcript quality check
     if not gpt_input or len(gpt_input.strip()) < 4:
@@ -513,6 +514,17 @@ async def media_stream(ws: WebSocket):
                     payload = result.to_dict()
                     print(json.dumps(payload, indent=2))
 
+                    sid = call_sid_holder.get("sid")
+                    now = time.time()
+
+                    # Get GPT candidate timestamp, if any
+                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
+
+                    if gpt_logged_at:
+                        delay = now - gpt_logged_at
+                        if delay > 0:
+                            print(f"⚠️ [DEBUG] Transcript received {delay:.2f}s AFTER GPT input was logged")
+
                     speech_final = payload.get("speech_final", False)
 
                     try:
@@ -535,14 +547,10 @@ async def media_stream(ws: WebSocket):
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
 
-                                if not full_transcript:
-                                    print("⚠️ Skipping save — final transcript was empty")
-                                    final_transcripts.clear()
-                                    return  # ← prevent overwrite
-
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
+                                    print(f"🧠 [WRITE] Overwriting user_transcript at {time.time()} with: \"{full_transcript}\"")
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
