@@ -516,17 +516,11 @@ async def media_stream(ws: WebSocket):
 
                     sid = call_sid_holder.get("sid")
                     now = time.time()
-                    transcript_to_write = final_transcript  # or whatever var you're saving
+                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{full_transcript}\"")
 
-                    # Log the write
-                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
-
-                    # Get GPT input timestamp
                     gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
-
-                    # Check if this write is AFTER GPT input was logged
                     if gpt_logged_at:
-                        delay = now - gpt_logged_at
+                        delay = time.time() - gpt_logged_at
                         if delay > 0:
                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
