@@ -542,6 +542,22 @@ async def media_stream(ws: WebSocket):
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
 
+                                    # 🧠 Detect overwrite — compare old vs new transcript
+                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
+                                    new_transcript = full_transcript.strip()
+
+                                    if prev_transcript != new_transcript:
+                                        if not new_transcript:
+                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                        else:
+                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                    else:
+                                        print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
+
                                     # ✅ Use full_transcript — it exists here
                                     transcript_to_write = full_transcript
                                     print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
