@@ -516,14 +516,6 @@ async def media_stream(ws: WebSocket):
 
                     sid = call_sid_holder.get("sid")
                     now = time.time()
-                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{full_transcript}\"")
-
-                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
-                    if gpt_logged_at:
-                        delay = time.time() - gpt_logged_at
-                        if delay > 0:
-                            print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
-
                     speech_final = payload.get("speech_final", False)
 
                     try:
