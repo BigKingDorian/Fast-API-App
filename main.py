@@ -555,7 +555,17 @@ async def media_stream(ws: WebSocket):
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
-                                    print(f"🧠 [WRITE] Overwriting user_transcript at {time.time()} with: \"{full_transcript}\"")
+
+                                    # ✅ Use full_transcript — it exists here
+                                    transcript_to_write = full_transcript
+                                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
+
+                                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
+                                    if gpt_logged_at:
+                                        delay = time.time() - gpt_logged_at
+                                        if delay > 0:
+                                            print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
+
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
