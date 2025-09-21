@@ -217,20 +217,29 @@ async def twilio_voice_webhook(request: Request):
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    # Before waiting for new transcript
+    # PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
-    # Wait for a newer one
-    gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
+
+    gpt_input = None
+    new_version = last_known_version
+
+    # Try for up to 30 seconds
+    for i in range(30):
+        # Check for newer transcript
+        candidate, version = await get_last_transcript_for_this_call(call_sid, last_known_version)
+    
+        if candidate and len(candidate.strip()) >= 4:
+            gpt_input = candidate
+            new_version = version
+            print(f"✅ Found valid transcript after {i + 1} sec: \"{gpt_input}\"")
+            break
+    
+        # Add a <Pause> tag to keep Twilio alive
+        vr.pause(length=1)
+        await asyncio.sleep(1.0)
+
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
     session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
-
-    # Simple transcript quality check
-    if not gpt_input or len(gpt_input.strip()) < 4:
-        print("⚠️ Transcript too short or missing — asking user to repeat")
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
     session_memory[call_sid]["user_transcript"] = None
