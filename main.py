@@ -220,7 +220,7 @@ async def twilio_voice_webhook(request: Request):
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     for _ in range(30):
         # Non-blocking update to session memory
-        getLastTranscriptForThisCall(sid)
+        get_last_transcript_for_this_call
 
         session = session_memory.get(sid, {})
         user_transcript = session.get("user_transcript")
