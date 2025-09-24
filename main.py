@@ -217,28 +217,27 @@ async def twilio_voice_webhook(request: Request):
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # ── 2. PULL LAST TRANSCRIPT (with TwiML <Pause>) ────────────────────────────────
-    vr = VoiceResponse()  # Start building the response
-
-    for _ in range(30):  # 30 attempts (≈30 seconds)
+    # ── 2. PULL LAST TRANSCRIPT (wait with Pause) ─────────────────────────────
+    user_transcript = None
+    for _ in range(30):
         session = session_memory.get(call_sid, {})
         user_transcript = session.get("user_transcript")
 
         if user_transcript:
             break
 
-        # Add 1-second pause to TwiML
+        # Wait 1 second, then tell Twilio to <Pause>
+        vr = VoiceResponse()
         vr.pause(length=1)
+        await asyncio.sleep(1)
         return Response(content=str(vr), media_type="application/xml")
-        await asyncio.sleep(1)  # Wait on server side
 
-        # At this point: either transcript is ready or timed out
-
-        if not user_transcript or len(user_transcript.strip()) < 4:
-            print("⚠️ Transcript too short or missing — asking user to repeat")
-            gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
-        else:
-            gpt_text = await get_gpt_response(user_transcript)
+    # ── 3. HANDLE FINAL TRANSCRIPT ─────────────────────────────────────────────
+    if not user_transcript or len(user_transcript.strip()) < 4:
+        print("⚠️ Transcript too short or missing — asking user to repeat")
+        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
+    else:
+        gpt_text = await get_gpt_response(user_transcript)
 
         # 🧼 Clear the transcript to avoid reuse in next round
         session_memory[call_sid]["user_transcript"] = None
