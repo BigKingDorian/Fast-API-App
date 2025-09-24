@@ -223,7 +223,7 @@ async def twilio_voice_webhook(request: Request):
 
     # LOOP: 30 seconds max ─────────────
     for _ in range(30):
-        user_transcript = await get_last_transcript_for_this_call(call_sid, version)
+        user_transcript = await get_last_transcript_for_this_call(call_sid, last_known_version)
 
         if user_transcript:
             break
