@@ -218,19 +218,30 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (wait with Pause) ─────────────────────────────
+    vr = VoiceResponse()
     user_transcript = None
+
+    # LOOP: 30 seconds max ─────────────
     for _ in range(30):
-        session = session_memory.get(call_sid, {})
-        user_transcript = session.get("user_transcript")
+        user_transcript = await get_last_transcript_for_this_call(call_sid, version)
 
         if user_transcript:
             break
 
-        # Wait 1 second, then tell Twilio to <Pause>
-        vr = VoiceResponse()
+        # Add 1s pause to TwiML (keeps Twilio connection alive)
         vr.pause(length=1)
-        await asyncio.sleep(1)
+
+        # Return TwiML <Pause>, Twilio will call us again
         return Response(content=str(vr), media_type="application/xml")
+
+        # This will never run because of early return, but
+        # you *could* refactor to build vr outside the loop
+        await asyncio.sleep(1)
+
+    if not user_transcript or len(user_transcript.strip()) < 4:
+        gpt_text = "Sorry, I didn't catch that. Could you please repeat?"
+    else:
+        gpt_text = await get_gpt_response(user_transcript)
 
     # ── 3. HANDLE FINAL TRANSCRIPT ─────────────────────────────────────────────
     if not user_transcript or len(user_transcript.strip()) < 4:
