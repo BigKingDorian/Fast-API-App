@@ -219,31 +219,31 @@ async def twilio_voice_webhook(request: Request):
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     for _ in range(30):
-    # Non-blocking update to session memory
-    getLastTranscriptForThisCall(sid)
+        # Non-blocking update to session memory
+        getLastTranscriptForThisCall(sid)
 
-    session = session_memory.get(sid, {})
-    user_transcript = session.get("user_transcript")
+        session = session_memory.get(sid, {})
+        user_transcript = session.get("user_transcript")
 
-    if user_transcript:
-        break
+        if user_transcript:
+            break
 
-    # Respond with <Pause> to keep Twilio from timing out
-    vr = VoiceResponse()
-    vr.pause(length=1)
-    await asyncio.sleep(1)  # Let the server wait too
-    return Response(content=str(vr), media_type="application/xml")
+        # Respond with <Pause> to keep Twilio from timing out
+        vr = VoiceResponse()
+        vr.pause(length=1)
+        await asyncio.sleep(1)  # Let the server wait too
+        return Response(content=str(vr), media_type="application/xml")
 
-    # Simple transcript quality check
-    if not gpt_input or len(gpt_input.strip()) < 4:
-        print("⚠️ Transcript too short or missing — asking user to repeat")
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
-    else:
-        gpt_text = await get_gpt_response(gpt_input)
+        # Simple transcript quality check
+        if not gpt_input or len(gpt_input.strip()) < 4:
+            print("⚠️ Transcript too short or missing — asking user to repeat")
+            gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
+        else:
+            gpt_text = await get_gpt_response(gpt_input)
 
-    # 🧼 Clear the transcript to avoid reuse in next round
-    session_memory[call_sid]["user_transcript"] = None
-    session_memory[call_sid]["transcript_version"] = 0
+        # 🧼 Clear the transcript to avoid reuse in next round
+        session_memory[call_sid]["user_transcript"] = None
+        session_memory[call_sid]["transcript_version"] = 0
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
