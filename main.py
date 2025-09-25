@@ -219,6 +219,7 @@ async def twilio_voice_webhook(request: Request):
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     # ✅ Redirect to /wait if user_transcript isnt ready
+    vr = VoiceResponse()
     vr.redirect("/wait")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
