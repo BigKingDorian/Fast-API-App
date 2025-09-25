@@ -220,6 +220,13 @@ async def twilio_voice_webhook(request: Request):
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     # Before waiting for new transcript
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+
+    # Pause Test 9-25-25
+    vr = VoiceResponse()
+    vr.pause(length=1)
+    print("✅ Heartbeat sent: <Pause length='1'/>")
+    return Response(content=str(vr), media_type="application/xml")
+
     # Wait for a newer one
     gpt_input, new_version = await get_last_transcript_for_this_call(call_sid, last_known_version)
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
