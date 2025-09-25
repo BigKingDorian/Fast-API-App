@@ -218,6 +218,11 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
+    # ✅ Redirect to /wait if user_transcript isnt ready
+    vr.redirect("/wait")
+    print("📝 Returning TwiML to Twilio (with redirect).")
+    return Response(content=str(vr), media_type="application/xml")
+    
     # Before waiting for new transcript
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
     # Wait for a newer one
@@ -460,6 +465,25 @@ async def greeting_rout(request: Request):
         vr.say("Sorry, something went wrong.")
         
     # ✅ Replace hangup with redirect back to self
+    vr.redirect("/")
+    print("📝 Returning TwiML to Twilio (with redirect).")
+    return Response(content=str(vr), media_type="application/xml")
+
+@app.post("/wait")
+async def greeting_rout(request: Request):
+    print("\n📞 ── [POST] WAIT handler hit ───────────────────────────────────")
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    print(f"🆔 Call SID: {call_sid}")
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    
+    # Pause success Tested 9-25-25
+    vr = VoiceResponse()
+    vr.pause(length=1)
+    print("✅ Heartbeat sent: <Pause length='1'/>")
+    await asyncio.sleep(1)
+
+    # ✅ Redirect to POST after /wait
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
