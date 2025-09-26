@@ -217,6 +217,19 @@ async def twilio_voice_webhook(request: Request):
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
+    # Pull last_known_version and check for updated transcript
+    call_sid = request.form["CallSid"]
+    last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+
+    # 🔁 LOOP: check for new transcript
+    data = session_memory.get(call_sid)
+    if data and data.get("user_transcript"):
+        version = data.get("transcript_version", 0)
+        if last_known_version is None or version > last_known_version:
+            return data["user_transcript"], version
+
+    await asyncio.sleep(0.1)
+
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
     # ✅ Redirect to /wait if user_transcript isnt ready
     vr = VoiceResponse()
