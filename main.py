@@ -209,19 +209,23 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # ── 2. PULL LAST TRANSCRIPT (if any) ───────────────────────────────────────
-    async def handle_transcript(request: Request):
-        call_sid = request.form["CallSid"]
-        last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
-        data = session_memory.get(call_sid)
-        if data and data.get("user_transcript"):
-            version = data.get("transcript_version", 0)
-            if last_known_version is None or version > last_known_version:
-                gpt_input = data["user_transcript"]
-                new_version = version
-                # ✅ You now have the fresh transcript. Return your GPT logic here.
-                ...
-                return ...  # your GPT response logic (e.g., generate, play, etc.)
-        # ❌ If no transcript or version is stale → redirect to /wait
+    async def twilio_voice_webhook(request: Request):
+    ...
+
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+    data = session_memory.get(call_sid)
+
+    if data and data.get("user_transcript"):
+        version = data.get("transcript_version", 0)
+        if last_known_version is None or version > last_known_version:
+            gpt_input = data["user_transcript"]
+            new_version = version
+            session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
+            print(f"📝 GPT input candidate: \"{gpt_input}\"")
+            # ... continue into GPT + TTS logic here
+    else:
+        # Redirect to /wait if not ready
         vr = VoiceResponse()
         vr.redirect("/wait")
         print("📝 No new transcript. Returning TwiML redirect to /wait.")
