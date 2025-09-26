@@ -218,7 +218,6 @@ async def twilio_voice_webhook(request: Request):
         return Response(content=str(vr), media_type="application/xml")
 
     # Pull last_known_version and check for updated transcript
-    call_sid = request.form["CallSid"]
     last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
 
     # 🔁 LOOP: check for new transcript
