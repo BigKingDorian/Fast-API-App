@@ -224,16 +224,22 @@ async def twilio_voice_webhook(request: Request):
     user_transcript = data.get("user_transcript")
     version = data.get("transcript_version", 0)
 
-    if user_transcript and (last_known_version is None or version > last_known_version):
-        # ✅ Fresh transcript: continue down the call path (no redirect here)
+    # Fix: get the version we last responded to
+    last_responded_version = data.get("last_responded_version", 0)
+
+    if user_transcript and version > last_responded_version:
         gpt_input = user_transcript
         new_version = version
+
+        # Mark this version as responded to
+        session_memory[call_sid]["last_responded_version"] = new_version
+
         print(f"✅ Transcript ready v{new_version}: {gpt_input!r}")
+        # ...proceed with GPT/TTS/etc...
     else:
-        # ❌ Not ready: return TwiML that "waits" via redirect
         vr = VoiceResponse()
         vr.redirect("/wait")
-        print("⏳ No transcript yet — redirecting to /wait")
+        print("⏳ No new transcript — redirecting to /wait")
         return Response(content=str(vr), media_type="application/xml")
 
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
