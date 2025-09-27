@@ -310,6 +310,21 @@ async def twilio_voice_webhook(request: Request):
         return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
+
+    # ⏱️ Measure duration using ffprobe
+    try:
+        duration = float(subprocess.check_output([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            converted_path
+        ]))
+        print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
+        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
+    except Exception as e:
+        print(f"⚠️ Failed to measure audio duration: {e}")
+        duration = 0.0
+    
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
         save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
@@ -430,20 +445,6 @@ async def greeting_rout(request: Request):
         return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
-
-    # ⏱️ Measure duration using ffprobe
-    try:
-        duration = float(subprocess.check_output([
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            converted_path
-        ]))
-        print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
-    except Exception as e:
-        print(f"⚠️ Failed to measure audio duration: {e}")
-        duration = 0.0
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
