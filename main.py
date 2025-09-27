@@ -625,7 +625,6 @@ async def media_stream(ws: WebSocket):
                                         return  # or just `pass`, or log it
                                     else:
                                     # Safe to write now
-                                    session_memory[sid]["user_transcript"] = transcript_text
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
