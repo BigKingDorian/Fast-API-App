@@ -102,15 +102,6 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["gpt_response"] = gpt_response
     if audio_path:
         session_memory[call_sid]["audio_path"] = audio_path
-        
-async def get_last_transcript_for_this_call(call_sid, last_known_version=None):
-    while True:
-        data = session_memory.get(call_sid)
-        if data and data.get("user_transcript"):
-            version = data.get("transcript_version", 0)
-            if last_known_version is None or version > last_known_version:
-                return data["user_transcript"], version
-        await asyncio.sleep(0.1)
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
