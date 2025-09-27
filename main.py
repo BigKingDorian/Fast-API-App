@@ -324,9 +324,6 @@ async def twilio_voice_webhook(request: Request):
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
-
-    # Set blocking writes to session memory
-    session_memory[call_sid]["block_until_time"] = time.time() + duration
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
@@ -617,19 +614,11 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    current_time = time.time()
-                                    block_until = session_memory[sid].get("block_until_time", 0)
+                                    session_memory[sid]["user_transcript"] = full_transcript
+                                    session_memory[sid]["ready"] = True
+                                    session_memory[sid]["transcript_version"] = time.time()
 
-                                    if current_time < block_until:
-                                        # Still within blocking window — skip write
-                                        return  # or just `pass`, or log it
-                                    else:
-                                        # Safe to write now
-                                        session_memory[sid]["user_transcript"] = full_transcript
-                                        session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = time.time()
-
-                                        save_transcript(sid, user_transcript=full_transcript)
+                                    save_transcript(sid, user_transcript=full_transcript)
 
                                 # ✅ Clear after saving
                                 final_transcripts.clear()
