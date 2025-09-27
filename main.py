@@ -624,12 +624,12 @@ async def media_stream(ws: WebSocket):
                                         # Still within blocking window — skip write
                                         return  # or just `pass`, or log it
                                     else:
-                                    # Safe to write now
-                                    session_memory[sid]["user_transcript"] = full_transcript
-                                    session_memory[sid]["ready"] = True
-                                    session_memory[sid]["transcript_version"] = time.time()
+                                        # Safe to write now
+                                        session_memory[sid]["user_transcript"] = full_transcript
+                                        session_memory[sid]["ready"] = True
+                                        session_memory[sid]["transcript_version"] = time.time()
 
-                                    save_transcript(sid, user_transcript=full_transcript)
+                                        save_transcript(sid, user_transcript=full_transcript)
 
                                 # ✅ Clear after saving
                                 final_transcripts.clear()
