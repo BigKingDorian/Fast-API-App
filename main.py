@@ -326,7 +326,7 @@ async def twilio_voice_webhook(request: Request):
         duration = 0.0
 
     # Set blocking writes to session memory
-    session_memory[sid]["block_until_time"] = time.time() + audio_duration_seconds
+    session_memory[call_sid]["block_until_time"] = time.time() + duration
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
