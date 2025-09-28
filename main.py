@@ -627,41 +627,30 @@ async def media_stream(ws: WebSocket):
                                     block_start = session_memory[sid].get("block_start_time")
                                     duration = session_memory[sid].get("duration")
                                     now = time.time()
+                                    
                                     print("🧠 DEBUG block_start:", block_start, "duration:", duration, "now:", time.time())
                                     print("🧠 DEBUG:", session_memory[sid])
                                     print(f"🧠 Block start: {block_start}")
                                     print(f"🧠 Duration: {duration}")
                                     print(f"🧠 Now: {now}")
 
-                                    if block_start and duration:
-                                        if time.time() >= block_start + duration:
-                                            # save transcript
-                                        else:
-                                            print("⏳ Still blocking transcript...")
-                                    else:
-                                        print("⚠️ Missing block_start or duration — cannot evaluate.")
+                                    if block_start is not None and duration is not None:
+                                        if now >= block_start + duration:
+                                        print("✅ Time condition met. Saving transcript.")
+                                        session_memory[sid]["user_transcript"] = full_transcript
+                                        session_memory[sid]["ready"] = True
+                                        session_memory[sid]["transcript_version"] = now
+                                        save_transcript(sid, user_transcript=full_transcript)
 
-                                            print("✅ Time condition met. Saving transcript.")
-                                            session_memory[sid]["user_transcript"] = full_transcript
-                                            session_memory[sid]["ready"] = True
-                                            session_memory[sid]["transcript_version"] = now
-                                            save_transcript(sid, user_transcript=full_transcript)
-                                        else:
-                                            print("⏳ Still within audio playback window. Not saving.")
-                                    else:
-                                        print("❌ Missing block_start or duration — cannot evaluate.")
-
-                                        # ✅ Clear after saving
+                                        # Optional cleanup logic
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
                                         last_transcript["is_final"] = False
-
-                                        # ✅ Clear after saving
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
+                                    else:
+                                        print("⏳ Still within audio playback window. Not saving.")
+                                else:
+                                    print("❌ Missing block_start or duration — cann
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
