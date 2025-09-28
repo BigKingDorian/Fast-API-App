@@ -632,7 +632,7 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
                                     else:
-                                        print(failed saving transcript)
+                                        print("❌ failed saving transcript")
                                         
                                         save_transcript(sid, user_transcript=full_transcript)
 
