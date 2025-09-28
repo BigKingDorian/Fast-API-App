@@ -632,10 +632,7 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
                                     else:
-                                        remaining = max(0.0, unblock_at - now)
-                                        logger.error(f"⛔ Block active — NOT saving transcript for SID={sid}. "
-                                                     f"now={now:.3f}, starts={block_start:.3f}, dur={duration:.2f}s, "
-                                                     f"unblocks_at={unblock_at:.3f}, remaining={remaining:.2f}s")
+                                        logger.error(f"⛔ Block active — NOT saving transcript for SID={sid}.)
                                         
                                         save_transcript(sid, user_transcript=full_transcript)
 
