@@ -624,14 +624,26 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    if time.time() >= session_memory[sid]["block_start_time"] + session_memory[sid]["duration"]:
-                                        session_memory[sid]["user_transcript"] = full_transcript
-                                        session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = time.time()
+                                    block_start = session_memory[sid].get("block_start_time")
+                                    duration = session_memory[sid].get("duration")
+                                    now = time.time()
+
+                                    print("🧠 DEBUG:", session_memory[sid])
+                                    print(f"🧠 Block start: {block_start}")
+                                    print(f"🧠 Duration: {duration}")
+                                    print(f"🧠 Now: {now}")
+
+                                    if block_start is not None and duration is not None:
+                                        if now >= block_start + duration:
+                                            print("✅ Time condition met. Saving transcript.")
+                                            session_memory[sid]["user_transcript"] = full_transcript
+                                            session_memory[sid]["ready"] = True
+                                            session_memory[sid]["transcript_version"] = now
+                                            save_transcript(sid, user_transcript=full_transcript)
+                                        else:
+                                            print("⏳ Still within audio playback window. Not saving.")
                                     else:
-                                        print("❌ failed saving transcript")
-                                        
-                                        save_transcript(sid, user_transcript=full_transcript)
+                                        print("❌ Missing block_start or duration — cannot evaluate.")
 
                                         # ✅ Clear after saving
                                         final_transcripts.clear()
