@@ -358,6 +358,11 @@ async def twilio_voice_webhook(request: Request):
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
+        
+        block_start_time = time.time()
+        session_memory.setdefault(sid, {})["block_start_time"] = block_start_time
+        print(f"✅ Set block_start_time: {block_start_time}")
+        
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
@@ -614,6 +619,9 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
+                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
+                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
+                                    
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
