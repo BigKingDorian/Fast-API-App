@@ -450,6 +450,29 @@ async def greeting_rout(request: Request):
         return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
+
+    # ⏱️ Measure duration of the greeting audio and store it
+    try:
+        dur = float(subprocess.check_output([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            converted_path
+        ]))
+        print(f"⏱️ Greeting duration: {dur:.2f} seconds")
+    except Exception as e:
+        print(f"⚠️ Failed to measure greeting duration with ffprobe: {e}")
+        # Fallback: for 8kHz pcm_mulaw, 1 byte per sample → seconds ≈ bytes / 8000
+        try:
+            dur = os.path.getsize(converted_path) / 8000.0
+            print(f"⏱️ Greeting duration fallback (filesize): {dur:.2f} seconds")
+        except Exception as e2:
+            print(f"⚠️ Fallback duration calc failed: {e2}")
+            dur = 0.0  # last-resort fallback
+
+    session_memory.setdefault(call_sid, {})
+    session_memory[call_sid]["duration"] = float(dur)
+    print(f"🧠 Stored greeting duration for {call_sid}: {session_memory[call_sid]['duration']}")
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
@@ -626,7 +649,7 @@ async def media_stream(ws: WebSocket):
 
                                     block_start = session_memory.get(sid, {}).get("block_start_time")
                                     # duration is stored as "audio_duration" earlier; fall back to "duration" just in case
-                                    duration = session_memory.get(sid, {}).get("audio_duration")
+                                    duration = session_memory.get(sid, {}).get("duration")
                                     if duration is None:
                                         duration = session_memory.get(sid, {}).get("duration")
 
