@@ -657,6 +657,8 @@ async def media_stream(ws: WebSocket):
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
 
+                                    log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
+
                                     save_transcript(sid, user_transcript=full_transcript)
 
                                 # ✅ Clear after saving
