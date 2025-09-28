@@ -484,6 +484,11 @@ async def greeting_rout(request: Request):
 
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
+
+        block_start_time = time.time()
+        session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
+        print(f"✅ Set block_start_time: {block_start_time}")
+        
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
