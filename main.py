@@ -320,7 +320,7 @@ async def twilio_voice_webhook(request: Request):
             converted_path
         ]))
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["duration"] = duration  # 🔒 Store for later
+        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
@@ -450,29 +450,6 @@ async def greeting_rout(request: Request):
         return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
-
-    # ⏱️ Measure duration of the greeting audio and store it
-    try:
-        dur = float(subprocess.check_output([
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            converted_path
-        ]))
-        print(f"⏱️ Greeting duration: {dur:.2f} seconds")
-    except Exception as e:
-        print(f"⚠️ Failed to measure greeting duration with ffprobe: {e}")
-        # Fallback: for 8kHz pcm_mulaw, 1 byte per sample → seconds ≈ bytes / 8000
-        try:
-            dur = os.path.getsize(converted_path) / 8000.0
-            print(f"⏱️ Greeting duration fallback (filesize): {dur:.2f} seconds")
-        except Exception as e2:
-            print(f"⚠️ Fallback duration calc failed: {e2}")
-            dur = 0.0  # last-resort fallback
-
-    session_memory.setdefault(call_sid, {})
-    session_memory[call_sid]["duration"] = float(dur)
-    print(f"🧠 Stored greeting duration for {call_sid}: {session_memory[call_sid]['duration']}")
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
@@ -647,39 +624,21 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    block_start = session_memory.get(sid, {}).get("block_start_time")
-                                    # duration is stored as "audio_duration" earlier; fall back to "duration" just in case
-                                    duration = session_memory.get(sid, {}).get("duration")
-                                    if duration is None:
-                                        duration = session_memory.get(sid, {}).get("duration")
+                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
+                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
-                                    now = time.time()
+                                    session_memory[sid]["user_transcript"] = full_transcript
+                                    session_memory[sid]["ready"] = True
+                                    session_memory[sid]["transcript_version"] = time.time()
 
-                                    print("🧠 DEBUG block_start:", block_start, "duration:", duration, "now:", now)
-                                    print("🧠 DEBUG:", session_memory.get(sid, {}))
-                                    print(f"🧠 Block start: {block_start}")
-                                    print(f"🧠 Duration: {duration}")
-                                    print(f"🧠 Now: {now}")
+                                    save_transcript(sid, user_transcript=full_transcript)
 
-                                    if block_start is not None and duration is not None:
-                                        if now >= block_start + duration:
-                                            print("✅ Time condition met. Saving transcript.")
-                                            session_memory[sid]["user_transcript"] = full_transcript
-                                            session_memory[sid]["ready"] = True
-                                            session_memory[sid]["transcript_version"] = now
-                                            save_transcript(sid, user_transcript=full_transcript)
+                                # ✅ Clear after saving
+                                final_transcripts.clear()
+                                last_transcript["text"] = ""
+                                last_transcript["confidence"] = 0.0
+                                last_transcript["is_final"] = False
 
-                                            # Optional cleanup (only if you want to clear after saving)
-                                            final_transcripts.clear()
-                                            last_transcript["text"] = ""
-                                            last_transcript["confidence"] = 0.0
-                                            last_transcript["is_final"] = False
-                                        else:
-                                            remaining = (block_start + float(duration)) - now
-                                            print(f"⏳ Still within audio playback window. Not saving. Remaining ~{max(0.0, remaining):.2f}s")
-                                    else:
-                                        print("❌ Missing block_start or duration — cannot evaluate.")
-                                        
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
