@@ -364,7 +364,7 @@ async def twilio_voice_webhook(request: Request):
         print(f"✅ Set block_start_time: {block_start_time}")
 
         # Set ai_is_speaking flag to True right before the file is played in POST
-        session_memory[sid]["ai_is_speaking"] = True
+        session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
@@ -508,7 +508,7 @@ async def greeting_rout(request: Request):
         print(f"✅ Set block_start_time: {block_start_time}")
 
         # Set ai_is_speaking flag to True right before the file is played in Greeting
-        session_memory[sid]["ai_is_speaking"] = True
+        session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
