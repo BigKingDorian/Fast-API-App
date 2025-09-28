@@ -624,34 +624,39 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    block_start = session_memory[sid].get("block_start_time")
-                                    duration = session_memory[sid].get("duration")
+                                    block_start = session_memory.get(sid, {}).get("block_start_time")
+                                    # duration is stored as "audio_duration" earlier; fall back to "duration" just in case
+                                    duration = session_memory.get(sid, {}).get("audio_duration")
+                                    if duration is None:
+                                        duration = session_memory.get(sid, {}).get("duration")
+
                                     now = time.time()
-                                    
-                                    print("🧠 DEBUG block_start:", block_start, "duration:", duration, "now:", time.time())
-                                    print("🧠 DEBUG:", session_memory[sid])
+
+                                    print("🧠 DEBUG block_start:", block_start, "duration:", duration, "now:", now)
+                                    print("🧠 DEBUG:", session_memory.get(sid, {}))
                                     print(f"🧠 Block start: {block_start}")
                                     print(f"🧠 Duration: {duration}")
                                     print(f"🧠 Now: {now}")
 
                                     if block_start is not None and duration is not None:
                                         if now >= block_start + duration:
-                                        print("✅ Time condition met. Saving transcript.")
-                                        session_memory[sid]["user_transcript"] = full_transcript
-                                        session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = now
-                                        save_transcript(sid, user_transcript=full_transcript)
+                                            print("✅ Time condition met. Saving transcript.")
+                                            session_memory[sid]["user_transcript"] = full_transcript
+                                            session_memory[sid]["ready"] = True
+                                            session_memory[sid]["transcript_version"] = now
+                                            save_transcript(sid, user_transcript=full_transcript)
 
-                                        # Optional cleanup logic
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
+                                            # Optional cleanup (only if you want to clear after saving)
+                                            final_transcripts.clear()
+                                            last_transcript["text"] = ""
+                                            last_transcript["confidence"] = 0.0
+                                            last_transcript["is_final"] = False
+                                        else:
+                                            remaining = (block_start + float(duration)) - now
+                                            print(f"⏳ Still within audio playback window. Not saving. Remaining ~{max(0.0, remaining):.2f}s")
                                     else:
-                                        print("⏳ Still within audio playback window. Not saving.")
-                                else:
-                                    print("❌ Missing block_start or duration — cann
-
+                                        print("❌ Missing block_start or duration — cannot evaluate.")
+                                        
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
