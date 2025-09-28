@@ -320,7 +320,7 @@ async def twilio_voice_webhook(request: Request):
             converted_path
         ]))
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
+        session_memory[call_sid]["duration"] = duration  # 🔒 Store for later
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
