@@ -363,6 +363,10 @@ async def twilio_voice_webhook(request: Request):
         session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
 
+        # Set ai_is_speaking flag to True right before the file is played in POST
+        session_memory[sid]["ai_is_speaking"] = True
+        print(f"🚩 Flag set: ai_is_speaking = {session_memory[sid]['ai_is_speaking']} for session {sid} at {time.time()}")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
@@ -502,6 +506,10 @@ async def greeting_rout(request: Request):
         block_start_time = time.time()
         session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
+
+        # Set ai_is_speaking flag to True right before the file is played in Greeting
+        session_memory[sid]["ai_is_speaking"] = True
+        print(f"🚩 Flag set: ai_is_speaking = {session_memory[sid]['ai_is_speaking']} for session {sid} at {time.time()}")
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
