@@ -627,17 +627,23 @@ async def media_stream(ws: WebSocket):
                                     block_start_time = session_memory.get(sid, {}).get("block_start_time")
                                     print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
-                                    session_memory[sid]["user_transcript"] = full_transcript
-                                    session_memory[sid]["ready"] = True
-                                    session_memory[sid]["transcript_version"] = time.time()
+                                    if time.time() >= session_memory[sid]["block_start_time"] + session_memory[sid]["duration"]:
+                                        session_memory[sid]["user_transcript"] = full_transcript
+                                        session_memory[sid]["ready"] = True
+                                        session_memory[sid]["transcript_version"] = time.time()
+                                    else:
+                                        remaining = max(0.0, unblock_at - now)
+                                        logger.error(f"⛔ Block active — NOT saving transcript for SID={sid}. "
+                                                     f"now={now:.3f}, starts={block_start:.3f}, dur={duration:.2f}s, "
+                                                     f"unblocks_at={unblock_at:.3f}, remaining={remaining:.2f}s")
+                                        
+                                        save_transcript(sid, user_transcript=full_transcript)
 
-                                    save_transcript(sid, user_transcript=full_transcript)
-
-                                # ✅ Clear after saving
-                                final_transcripts.clear()
-                                last_transcript["text"] = ""
-                                last_transcript["confidence"] = 0.0
-                                last_transcript["is_final"] = False
+                                        # ✅ Clear after saving
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
