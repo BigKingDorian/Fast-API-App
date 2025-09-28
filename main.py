@@ -619,7 +619,7 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    block_start_time = session_memory.get(call_sid, {}).get("block_start_time")
+                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
                                     print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
                                     session_memory[sid]["user_transcript"] = full_transcript
