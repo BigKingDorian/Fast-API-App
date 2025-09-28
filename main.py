@@ -649,6 +649,10 @@ async def media_stream(ws: WebSocket):
                                     block_start_time = session_memory.get(sid, {}).get("block_start_time")
                                     print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
+                                    if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["duration"]:
+                                        session_memory[sid]["ai_is_speaking"] = False
+                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
+
                                     session_memory[sid]["user_transcript"] = full_transcript
                                     session_memory[sid]["ready"] = True
                                     session_memory[sid]["transcript_version"] = time.time()
