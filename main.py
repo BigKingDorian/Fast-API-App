@@ -663,6 +663,11 @@ async def media_stream(ws: WebSocket):
                                         save_transcript(sid, user_transcript=full_transcript)
                                     else:
                                         log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                        # ✅ Clear after saving
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
                                 # ✅ Clear after saving
                                 final_transcripts.clear()
