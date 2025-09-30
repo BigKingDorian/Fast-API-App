@@ -661,14 +661,21 @@ async def media_stream(ws: WebSocket):
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
 
                                         save_transcript(sid, user_transcript=full_transcript)
+
+                                        # ✅ Clear after successful save
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
+
                                     else:
                                         log(f"🚫 [{sid}] Save skipped — AI still speaking")
 
-                                # ✅ Clear after saving
-                                final_transcripts.clear()
-                                last_transcript["text"] = ""
-                                last_transcript["confidence"] = 0.0
-                                last_transcript["is_final"] = False
+                                        # 🧹 Clear junk to avoid stale input
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
@@ -782,4 +789,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-       
+        
