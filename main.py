@@ -363,6 +363,10 @@ async def twilio_voice_webhook(request: Request):
         session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
 
+        # Set ai_is_speaking flag to True right before the file is played in POST
+        session_memory[call_sid]["ai_is_speaking"] = True
+        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
@@ -450,6 +454,20 @@ async def greeting_rout(request: Request):
         return Response("Converted audio not available", status_code=500)
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
+
+    # ⏱️ Measure duration using ffprobe
+    try:
+        duration = float(subprocess.check_output([
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            converted_path
+        ]))
+        print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
+        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
+    except Exception as e:
+        print(f"⚠️ Failed to measure audio duration: {e}")
+        duration = 0.0
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
@@ -488,6 +506,10 @@ async def greeting_rout(request: Request):
         block_start_time = time.time()
         session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
+
+        # Set ai_is_speaking flag to True right before the file is played in Greeting
+        session_memory[call_sid]["ai_is_speaking"] = True
+        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
@@ -624,20 +646,33 @@ async def media_stream(ws: WebSocket):
                                         if delay > 0:
                                             print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
-                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
+                                    if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
+                                        session_memory[sid]["ai_is_speaking"] = False
+                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    session_memory[sid]["user_transcript"] = full_transcript
-                                    session_memory[sid]["ready"] = True
-                                    session_memory[sid]["transcript_version"] = time.time()
+                                    if session_memory[sid].get("ai_is_speaking") is False:
+                                        session_memory[sid]["user_transcript"] = full_transcript
+                                        session_memory[sid]["ready"] = True
+                                        session_memory[sid]["transcript_version"] = time.time()
 
-                                    save_transcript(sid, user_transcript=full_transcript)
+                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
 
-                                # ✅ Clear after saving
-                                final_transcripts.clear()
-                                last_transcript["text"] = ""
-                                last_transcript["confidence"] = 0.0
-                                last_transcript["is_final"] = False
+                                        save_transcript(sid, user_transcript=full_transcript)
+
+                                        # ✅ Clear after successful save
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
+
+                                    else:
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+
+                                        # 🧹 Clear junk to avoid stale input
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
@@ -751,4 +786,4 @@ async def media_stream(ws: WebSocket):
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-        
+       
