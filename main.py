@@ -613,7 +613,7 @@ async def media_stream(ws: WebSocket):
                             final_transcripts.append(sentence)
 
                             if speech_final:
-                                clean = transcript.strip()
+                                clean = sentence.strip()
                                 if clean:
                                     final_transcripts.append(clean)
                                 else:
