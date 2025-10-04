@@ -616,9 +616,9 @@ async def media_stream(ws: WebSocket):
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
 
-                                    if not full_transcript:
-                                        log(f"⚠️ Skipping save — full_transcript is empty")
-                                        return  # Exit early, skipping the save logic below
+                                if not full_transcript:
+                                    log(f"⚠️ Skipping save — full_transcript is empty")
+                                    return  # Exit early, skipping the save logic below
 
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
