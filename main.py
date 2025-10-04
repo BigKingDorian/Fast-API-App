@@ -615,6 +615,7 @@ async def media_stream(ws: WebSocket):
                             if speech_final:
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
+                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
