@@ -227,20 +227,21 @@ async def twilio_voice_webhook(request: Request):
     if user_transcript and version > last_responded_version:
         gpt_input = user_transcript
         new_version = version
-    else:
-        log(f"⛔ Skipped GPT input for {call_sid}: user_transcript={repr(user_transcript)}, version={version}, last_responded={last_responded_version}")
-
         # Mark this version as responded to
         session_memory[call_sid]["last_responded_version"] = new_version
-
         print(f"✅ Transcript ready v{new_version}: {gpt_input!r}")
-        # ...proceed with GPT/TTS/etc...
-    else:
+
+    elif user_transcript:  # user_transcript exists but version not newer
+        log(f"⛔ Skipped GPT input for {call_sid}: user_transcript={repr(user_transcript)}, "
+            f"version={version}, last_responded={last_responded_version}")
+        return Response(content="No new transcript yet", media_type="application/xml")
+
+    else:  # truly no transcript — redirect
         vr = VoiceResponse()
         vr.redirect("/wait")
         print("⏳ No new transcript — redirecting to /wait")
         return Response(content=str(vr), media_type="application/xml")
-
+        
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
     session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
 
