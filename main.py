@@ -227,6 +227,8 @@ async def twilio_voice_webhook(request: Request):
     if user_transcript and version > last_responded_version:
         gpt_input = user_transcript
         new_version = version
+    else:
+        log(f"⛔ Skipped GPT input for {call_sid}: user_transcript={repr(user_transcript)}, version={version}, last_responded={last_responded_version}")
 
         # Mark this version as responded to
         session_memory[call_sid]["last_responded_version"] = new_version
@@ -250,6 +252,7 @@ async def twilio_voice_webhook(request: Request):
         gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
+    log(f"🧹 Clearing user_transcript (v{session_memory[call_sid].get('transcript_version')}) for {call_sid}: {repr(session_memory[call_sid].get('user_transcript'))}")
     session_memory[call_sid]["user_transcript"] = None
     session_memory[call_sid]["transcript_version"] = 0
 
