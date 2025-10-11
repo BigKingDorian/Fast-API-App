@@ -677,6 +677,9 @@ async def media_stream(ws: WebSocket):
 
                                         save_transcript(sid, user_transcript=full_transcript)
 
+                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {call_sid}")
+                                        session_memory[call_sid]['user_response_processing'] = True
+
                                         # ✅ Clear after successful save
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
