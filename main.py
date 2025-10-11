@@ -377,7 +377,7 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
-        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {sid}")
+        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
         session_memory[call_sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
