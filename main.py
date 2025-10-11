@@ -377,13 +377,6 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
-        sid = request.query_params.get("CallSid")  # or pull from POST body if needed
-        if sid:
-            session_memory.setdefault(sid, {})
-
-            logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {sid}")
-            session_memory[sid]['user_response_processing'] = False
-        
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
@@ -633,8 +626,6 @@ async def media_stream(ws: WebSocket):
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
-                                logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                session_memory[sid]['user_response_processing'] = True
 
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
@@ -676,9 +667,6 @@ async def media_stream(ws: WebSocket):
                                     if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
-
-                                    if session_memory[sid].get("user_response_processing"):
-                                        log(f"⛔ [{sid}] Save skipped — user_response_processing is True")
 
                                     if session_memory[sid].get("ai_is_speaking") is False:
                                         session_memory[sid]["user_transcript"] = full_transcript
