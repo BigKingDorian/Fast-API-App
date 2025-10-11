@@ -377,8 +377,8 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
-        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
+        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {sid}")
+        session_memory[sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
@@ -524,8 +524,8 @@ async def greeting_rout(request: Request):
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
-        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
+        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {sid}")
+        session_memory[sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
@@ -632,8 +632,8 @@ async def media_stream(ws: WebSocket):
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
-                                logger.info(f"🟩 [User Input] Processing started — blocking writes for {call_sid}")
-                                session_memory[call_sid]['user_response_processing'] = True
+                                logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+                                session_memory[sid]['user_response_processing'] = True
 
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
