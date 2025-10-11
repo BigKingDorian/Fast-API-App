@@ -377,7 +377,7 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
-        sid = call_sid_holder.get("sid")
+        sid = request.query_params.get("CallSid")  # or pull from POST body if needed
         if sid:
             session_memory.setdefault(sid, {})
 
