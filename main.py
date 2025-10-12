@@ -673,7 +673,7 @@ async def media_stream(ws: WebSocket):
 
                                     # 🧱 Block writes if a response is still being processed
                                     if session_memory[sid].get("user_response_processing"):
-                                        log(f"🚫 [{sid}] Skipped transcript save — user_response_processing=True")
+                                        logger.info(f"🚫 Skipping transcript save. Transcript that would have been saved: {full_transcript}")
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
