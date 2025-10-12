@@ -381,11 +381,6 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-
-        final_transcripts.clear()
-        last_transcript["text"] = ""
-        last_transcript["confidence"] = 0.0
-        last_transcript["is_final"] = False
         
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
