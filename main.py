@@ -381,6 +381,12 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+
+        final_transcripts.clear()
+        last_transcript["text"] = ""
+        last_transcript["confidence"] = 0.0
+        last_transcript["is_final"] = False
+        
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
@@ -674,10 +680,6 @@ async def media_stream(ws: WebSocket):
                                     # 🧱 Block writes if a response is still being processed
                                     if session_memory[sid].get("user_response_processing"):
                                         logger.info(f"🚫 Skipping transcript save. Transcript that would have been saved: {full_transcript}")
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
                                         return  # stop processing this speech_final
 
                                     if session_memory[sid].get("ai_is_speaking") is False:
