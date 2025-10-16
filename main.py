@@ -616,45 +616,45 @@ async def media_stream(ws: WebSocket):
                         session_memory[sid].setdefault("ai_is_speaking", False)
                         session_memory[sid].setdefault("user_response_processing", False)
 
-                        try:
-                            alt = payload["channel"]["alternatives"][0]
-                            sentence = alt.get("transcript", "")
-                            confidence = alt.get("confidence", 0.0)
-                            is_final = payload.get("is_final", False)
+                    try:
+                        alt = payload["channel"]["alternatives"][0]
+                        sentence = alt.get("transcript", "")
+                        confidence = alt.get("confidence", 0.0)
+                        is_final = payload.get("is_final", False)
                             
-                            last_input_time["ts"] = time.time()
-                            last_transcript["text"] = sentence
-                            last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = True
+                        last_input_time["ts"] = time.time()
+                        last_transcript["text"] = sentence
+                        last_transcript["confidence"] = confidence
+                        last_transcript["is_final"] = True
 
-                            final_transcripts.append(sentence)
+                        final_transcripts.append(sentence)
 
-                            if speech_final:
-                                print("🧠 speech_final received — concatenating full transcript")
-                                full_transcript = " ".join(final_transcripts)
-                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
+                        if speech_final:
+                            print("🧠 speech_final received — concatenating full transcript")
+                            full_transcript = " ".join(final_transcripts)
+                            log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
-                                if not full_transcript:
-                                    log(f"⚠️ Skipping save — full_transcript is empty")
-                                    return  # Exit early, skipping the save logic below
+                            if not full_transcript:
+                                log(f"⚠️ Skipping save — full_transcript is empty")
+                                return  # Exit early, skipping the save logic below
 
-                                if call_sid_holder["sid"]:
-                                    sid = call_sid_holder["sid"]
-                                    session_memory.setdefault(sid, {})
+                            if call_sid_holder["sid"]:
+                                sid = call_sid_holder["sid"]
+                                session_memory.setdefault(sid, {})
 
-                                    # 🧠 Detect overwrite — compare old vs new transcript
-                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
-                                    new_transcript = full_transcript.strip()
+                                # 🧠 Detect overwrite — compare old vs new transcript
+                                prev_transcript = session_memory.get(sid, {}).get("user_transcript")
+                                new_transcript = full_transcript.strip()
 
-                                    if prev_transcript != new_transcript:
-                                        if not new_transcript:
-                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
-                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                            print(f"     ✏️ New:      {repr(new_transcript)}")
-                                        else:
-                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
-                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                if prev_transcript != new_transcript:
+                                    if not new_transcript:
+                                        print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
+                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                        print(f"     ✏️ New:      {repr(new_transcript)}")
+                                    else:
+                                        print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
+                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                        print(f"     ✏️ New:      {repr(new_transcript)}")
                                     else:
                                         print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
 
