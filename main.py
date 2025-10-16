@@ -655,8 +655,8 @@ async def media_stream(ws: WebSocket):
                                         print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
                                         print(f"     🧠 Previous: {repr(prev_transcript)}")
                                         print(f"     ✏️ New:      {repr(new_transcript)}")
-                                    else:
-                                        print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
+                                else:
+                                    print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
 
                                     # ✅ Use full_transcript — it exists here
                                     transcript_to_write = full_transcript
