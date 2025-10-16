@@ -673,7 +673,7 @@ async def media_stream(ws: WebSocket):
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
                                     ai_is_speaking = session_memory[sid].get("ai_is_speaking")
-                                    user_response_processing = session_memory[sid].get("user_response_processing")
+                                    session_memory[sid].setdefault("user_response_processing", False)
                                     
                                     # ✅ Main save gate
                                     if (
