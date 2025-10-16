@@ -381,7 +381,6 @@ async def twilio_voice_webhook(request: Request):
         session_memory[call_sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
@@ -610,53 +609,50 @@ async def media_stream(ws: WebSocket):
                     now = time.time()
                     speech_final = payload.get("speech_final", False)
 
-                    # 🧠 Ensure session exists and initialize concurrency flags safely
-                    if sid:
-                        session_memory.setdefault(sid, {})
-                        session_memory[sid].setdefault("ai_is_speaking", False)
-                        session_memory[sid].setdefault("user_response_processing", False)
-
                     try:
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
-                        is_final = payload.get("is_final", False)
-                            
-                        last_input_time["ts"] = time.time()
-                        last_transcript["text"] = sentence
-                        last_transcript["confidence"] = confidence
-                        last_transcript["is_final"] = True
+                        is_final = payload["is_final"] if "is_final" in payload else False
+                        
+                        if is_final and sentence.strip() and confidence >= 0.6:
+                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
-                        final_transcripts.append(sentence)
+                            last_input_time["ts"] = time.time()
+                            last_transcript["text"] = sentence
+                            last_transcript["confidence"] = confidence
+                            last_transcript["is_final"] = True
 
-                        if speech_final:
-                            print("🧠 speech_final received — concatenating full transcript")
-                            full_transcript = " ".join(final_transcripts)
-                            log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
+                            final_transcripts.append(sentence)
 
-                            if not full_transcript:
-                                log(f"⚠️ Skipping save — full_transcript is empty")
-                                return  # Exit early, skipping the save logic below
+                            if speech_final:
+                                print("🧠 speech_final received — concatenating full transcript")
+                                full_transcript = " ".join(final_transcripts)
+                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
-                            if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
-                                session_memory.setdefault(sid, {})
+                                if not full_transcript:
+                                    log(f"⚠️ Skipping save — full_transcript is empty")
+                                    return  # Exit early, skipping the save logic below
 
-                                # 🧠 Detect overwrite — compare old vs new transcript
-                                prev_transcript = session_memory.get(sid, {}).get("user_transcript")
-                                new_transcript = full_transcript.strip()
+                                if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    session_memory.setdefault(sid, {})
 
-                                if prev_transcript != new_transcript:
-                                    if not new_transcript:
-                                        print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
-                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                        print(f"     ✏️ New:      {repr(new_transcript)}")
+                                    # 🧠 Detect overwrite — compare old vs new transcript
+                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
+                                    new_transcript = full_transcript.strip()
+
+                                    if prev_transcript != new_transcript:
+                                        if not new_transcript:
+                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                        else:
+                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
                                     else:
-                                        print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
-                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                        print(f"     ✏️ New:      {repr(new_transcript)}")
-                                else:
-                                    print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
+                                        print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
 
                                     # ✅ Use full_transcript — it exists here
                                     transcript_to_write = full_transcript
@@ -674,7 +670,7 @@ async def media_stream(ws: WebSocket):
                                     if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
-                                    
+
                                     # ✅ Main save gate
                                     if (
                                         session_memory[sid].get("ai_is_speaking") is False and
@@ -686,10 +682,11 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-    
-                                        session_memory[sid]['user_response_processing'] = True
+
                                         save_transcript(sid, user_transcript=full_transcript)
+
+                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+                                        session_memory[sid]['user_response_processing'] = True
 
                                         # ✅ Clear after successful save
                                         final_transcripts.clear()
@@ -698,18 +695,7 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["is_final"] = False
 
                                     else:
-                                        # 🚫 Log skip reason and state
-                                        logger.info(
-                                        f"🚫 Skipped transcript save for {sid}. "
-                                        f"ai_is_speaking={session_memory[sid].get('ai_is_speaking')}, "
-                                        f"user_response_processing={session_memory[sid].get('user_response_processing')}, "
-                                        f"transcript_attempted='{full_transcript}'"
-                                        )
-
-                                        if ai_is_speaking:
-                                            log(f"🚫 [{sid}] Save skipped — AI still speaking")
-                                        elif user_response_processing:
-                                            log(f"🚫 [{sid}] Save skipped — Waiting on previous response")
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
 
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
