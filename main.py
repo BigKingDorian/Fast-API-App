@@ -672,23 +672,22 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    # 🧱 Block writes if a response is still being processed
-                                    if session_memory[sid].get("user_response_processing"):
-                                        logger.info(f"🚫 Skipping transcript save. Transcript that would have been saved: {full_transcript}")
-                                        return  # stop processing this speech_final
-
-                                    if session_memory[sid].get("ai_is_speaking") is False:
+                                    # ✅ Main save gate
+                                    if (
+                                        session_memory[sid].get("ai_is_speaking") is False and
+                                        session_memory[sid].get("user_response_processing") is False
+                                        ):
+                                        # ✅ Proceed with save
                                         session_memory[sid]["user_transcript"] = full_transcript
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+    
                                         session_memory[sid]['user_response_processing'] = True
-                                        
                                         save_transcript(sid, user_transcript=full_transcript)
-                                        
+
                                         # ✅ Clear after successful save
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
@@ -696,7 +695,21 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["is_final"] = False
 
                                     else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                        ai_is_speaking = session_memory[sid].get("ai_is_speaking")
+                                        user_response_processing = session_memory[sid].get("user_response_processing")
+                                        
+                                        # 🚫 Log skip reason and state
+                                        logger.info(
+                                        f"🚫 Skipped transcript save for {sid}. "
+                                        f"ai_is_speaking={session_memory[sid].get('ai_is_speaking')}, "
+                                        f"user_response_processing={session_memory[sid].get('user_response_processing')}, "
+                                        f"transcript_attempted='{full_transcript}'"
+                                        )
+
+                                        if ai_is_speaking:
+                                            log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                        elif user_response_processing:
+                                            log(f"🚫 [{sid}] Save skipped — Waiting on previous response")
 
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
