@@ -610,15 +610,18 @@ async def media_stream(ws: WebSocket):
                     now = time.time()
                     speech_final = payload.get("speech_final", False)
 
-                    try:
-                        alt = payload["channel"]["alternatives"][0]
-                        sentence = alt.get("transcript", "")
-                        confidence = alt.get("confidence", 0.0)
-                        is_final = payload["is_final"] if "is_final" in payload else False
-                        
-                        if is_final and sentence.strip() and confidence >= 0.6:
-                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
+                    # 🧠 Ensure session exists and initialize concurrency flags safely
+                    if sid:
+                        session_memory.setdefault(sid, {})
+                        session_memory[sid].setdefault("ai_is_speaking", False)
+                        session_memory[sid].setdefault("user_response_processing", False)
 
+                        try:
+                            alt = payload["channel"]["alternatives"][0]
+                            sentence = alt.get("transcript", "")
+                            confidence = alt.get("confidence", 0.0)
+                            is_final = payload.get("is_final", False)
+                            
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
