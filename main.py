@@ -523,9 +523,6 @@ async def greeting_rout(request: Request):
         # Set ai_is_speaking flag to True right before the file is played in Greeting
         session_memory[call_sid]["ai_is_speaking"] = True
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
-
-        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
         
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
@@ -674,26 +671,12 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    # ✅ Main save gate
-                                    if (
-                                        session_memory[sid].get("ai_is_speaking") is False and
-                                        session_memory[sid].get("user_response_processing") is False
-                                        ):
-                                        # ✅ Proceed with save
+                                    if session_memory[sid].get("ai_is_speaking") is False:
                                         session_memory[sid]["user_transcript"] = full_transcript
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-
-                                    else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
-
-                                        # 🧹 Clear junk to avoid stale input
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
 
                                         save_transcript(sid, user_transcript=full_transcript)
 
@@ -701,6 +684,15 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]['user_response_processing'] = True
 
                                         # ✅ Clear after successful save
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
+
+                                    else:
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+
+                                        # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
