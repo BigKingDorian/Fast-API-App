@@ -671,7 +671,12 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    if session_memory[sid].get("ai_is_speaking") is False:
+                                    # ✅ Main save gate
+                                    if (
+                                        session_memory[sid].get("ai_is_speaking") is False and
+                                        session_memory[sid].get("user_response_processing") is False
+                                        ):
+                                        # ✅ Proceed with save
                                         session_memory[sid]["user_transcript"] = full_transcript
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
