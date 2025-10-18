@@ -99,7 +99,7 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["transcript_version"] = time.time()  # 👈 Add this line
 
             # 🧪 Add log here to inspect the transcript
-        log(f"📝 [SAVE] sid={call_sid} | transcript={repr(user_transcript)} | ai_speaking={session_memory[call_sid].get('ai_is_speaking')} | processing={session_memory[call_sid].get('user_response_processing')}")
+        log(f"📝 save_transcript helper Saved user_transcript for {call_sid}: {repr(user_transcript)}")
     else:
         # Optional: log when nothing is saved
         log(f"⚠️ save_transcript helper No user_transcript provided to save for {call_sid}")
@@ -684,11 +684,9 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
 
-                                        if full_transcript.strip():
-                                            save_transcript(sid, user_transcript=full_transcript)
-                                            log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        else:
-                                            log(f"⚠️ [DEBUG] Skipped helper — empty full_transcript for {sid}")
+                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
+
+                                        save_transcript(sid, user_transcript=full_transcript)
 
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
                                         session_memory[sid]['user_response_processing'] = True
