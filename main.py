@@ -642,7 +642,8 @@ async def media_stream(ws: WebSocket):
                                     f"interim_results={state.interim_results} | "
                                     f"confidence_final={state.confidence_final} | "
                                     f"ready={state.ready}"
-                                )f"confidence={getattr(state, 'confidence', 'N/A')} | "
+                                    f"confidence={getattr(state, 'confidence', 'N/A')} | "
+                                )
 
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
