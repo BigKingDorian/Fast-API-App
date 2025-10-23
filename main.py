@@ -631,16 +631,6 @@ async def media_stream(ws: WebSocket):
                             if speech_final:
                                 print("🧠 speech_final received — concatenating full transcript")
 
-                                if 'state' in locals():
-                                    print(f"🧪 done={getattr(state, 'done', 'N/A')}")
-                                else:
-                                    print("🧪 No state object in this scope")
-
-                                if 'state' in locals():
-                                    print(f"🧪 done={getattr(state, 'speech_final', 'N/A')}")
-                                else:
-                                    print("🧪 No speech final in this scope")
-
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
