@@ -631,7 +631,7 @@ async def media_stream(ws: WebSocket):
                             if speech_final:
                                 print("🧠 speech_final received — concatenating full transcript")
 
-                                logger.info(f"🧪 done={state.done}")
+                                logger.info(f"🧪 done={getattr(state, 'done', 'N/A')}")
 
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
