@@ -193,7 +193,11 @@ class VerboseStaticFiles(StaticFiles):
                 log("⚠️ Could not list directory: %s", e)
 
         return await super().get_response(path, scope)
-        
+
+@app.get("/")
+async def health():
+    return{"satus": "ok"}
+
 @app.post("/")
 async def twilio_voice_webhook(request: Request):
     print("\n📞 ── [POST] Twilio webhook hit ───────────────────────────────────")
