@@ -703,7 +703,8 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["is_final"] = False
 
                                     else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                        log(f"🚫 [Deepgram] Skipped saving for {sid} — AI still speaking or user_response_processing = True")
+                                        log(f"🧪 Skipped full_transcript was: {repr(full_transcript)}")
 
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
