@@ -254,6 +254,7 @@ async def twilio_voice_webhook(request: Request):
         print("⚠️ Transcript too short or missing — asking user to repeat")
         gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
     else:
+        log(f"🧠 [CHECK] GPT is about to read user_transcript: {repr(session_memory.get(call_sid, {}).get('user_transcript'))}")
         gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
