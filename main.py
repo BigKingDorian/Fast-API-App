@@ -711,6 +711,8 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
                                         last_transcript["is_final"] = False
+                                        session_memory[call_sid]["user_transcript"] = None
+                                        session_memory[call_sid]["transcript_version"] = 0
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
