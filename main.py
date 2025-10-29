@@ -254,18 +254,12 @@ async def twilio_voice_webhook(request: Request):
         print("⚠️ Transcript too short or missing — asking user to repeat")
         gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
     else:
-        log(f"🧠 [CHECK] GPT is about to read user_transcript: {repr(session_memory.get(call_sid, {}).get('user_transcript'))}")
         gpt_text = await get_gpt_response(gpt_input)
 
     # 🧼 Clear the transcript to avoid reuse in next round
     log(f"🧹 Clearing user_transcript (v{session_memory[call_sid].get('transcript_version')}) for {call_sid}: {repr(session_memory[call_sid].get('user_transcript'))}")
     session_memory[call_sid]["user_transcript"] = None
     session_memory[call_sid]["transcript_version"] = 0
-    # 🧹 Clear junk to avoid stale input
-    final_transcripts.clear()
-    last_transcript["text"] = ""
-    last_transcript["confidence"] = 0.0
-    last_transcript["is_final"] = False
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
@@ -708,8 +702,13 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["is_final"] = False
 
                                     else:
-                                        log(f"🚫 [Deepgram] Skipped saving for {sid} — AI still speaking or user_response_processing = True")
-                                        log(f"🧪 Skipped full_transcript was: {repr(full_transcript)}")
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+
+                                        # 🧹 Clear junk to avoid stale input
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
