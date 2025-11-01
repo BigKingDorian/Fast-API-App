@@ -598,14 +598,19 @@ async def media_stream(ws: WebSocket):
 
         def on_transcript(*args, **kwargs):
             try:
+                print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
                 metadata = kwargs.get("metadata")
 
                 if result is None:
+                    print("⚠️ No result received.")
                     return
+
+                print("📂 Type of result:", type(result))
 
                 if hasattr(result, "to_dict"):
                     payload = result.to_dict()
+                    print(json.dumps(payload, indent=2))
 
                     sid = call_sid_holder.get("sid")
                     now = time.time()
@@ -618,6 +623,7 @@ async def media_stream(ws: WebSocket):
                         is_final = payload["is_final"] if "is_final" in payload else False
                         
                         if is_final and sentence.strip() and confidence >= 0.6:
+                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
@@ -627,22 +633,50 @@ async def media_stream(ws: WebSocket):
                             final_transcripts.append(sentence)
 
                             if speech_final:
+                                print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
+                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
                                 if not full_transcript:
+                                    log(f"⚠️ Skipping save — full_transcript is empty")
                                     return  # Exit early, skipping the save logic below
 
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
 
+                                    # 🧠 Detect overwrite — compare old vs new transcript
+                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
+                                    new_transcript = full_transcript.strip()
+
+                                    if prev_transcript != new_transcript:
+                                        if not new_transcript:
+                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                        else:
+                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                    else:
+                                        print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
+
                                     # ✅ Use full_transcript — it exists here
                                     transcript_to_write = full_transcript
+                                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
+
+                                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
+                                    if gpt_logged_at:
+                                        delay = time.time() - gpt_logged_at
+                                        if delay > 0:
+                                            print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
                                     block_start_time = session_memory.get(sid, {}).get("block_start_time")
+                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
                                     if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
                                         session_memory[sid]["ai_is_speaking"] = False
+                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
                                     # ✅ Main save gate
                                     if (
@@ -654,8 +688,11 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
 
+                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
+
                                         save_transcript(sid, user_transcript=full_transcript)
 
+                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
                                         session_memory[sid]['user_response_processing'] = True
 
                                         # ✅ Clear after successful save
@@ -665,6 +702,8 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["is_final"] = False
 
                                     else:
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
@@ -690,8 +729,9 @@ async def media_stream(ws: WebSocket):
             sample_rate=8000,
             punctuate=True,
         )
-        
+        print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
+        print("✅ Deepgram connection started")
         
         async def monitor_user_done():
             while not finished["done"]:
