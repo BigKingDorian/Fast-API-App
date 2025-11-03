@@ -125,14 +125,31 @@ async def get_gpt_response(user_text: str) -> str:
         safe_text = "" if user_text is None else str(user_text)
         if not safe_text.strip():
             safe_text = "Hello, how can I help you today?"
+
+        # 🕒 start timer
+        start = time.time()
+        logger.info(f"⏱️ [DEBUG] GPT request started at {time.strftime('%H:%M:%S')}")
+
+        # actual HTTP request to OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
+                {"role": "system", "content": "You are a helpful AI assistant named Lotus."},
                 {"role": "user", "content": safe_text}
             ]
         )
+
+        # 🕒 end timer
+        end = time.time()
+        duration = end - start
+        logger.info(f"✅ [DEBUG] GPT request completed in {duration:.2f} seconds")
+
+        # optional: threshold alert
+        if duration > 5:
+            print("⚠️ [WARNING] GPT request exceeded 5 seconds (possible stall)")
+
         return response.choices[0].message.content or "[GPT returned empty message]"
+
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
