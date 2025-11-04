@@ -125,31 +125,14 @@ async def get_gpt_response(user_text: str) -> str:
         safe_text = "" if user_text is None else str(user_text)
         if not safe_text.strip():
             safe_text = "Hello, how can I help you today?"
-
-        # 🕒 start timer
-        start = time.time()
-        logger.info(f"⏱️ [DEBUG] GPT request started at {time.strftime('%H:%M:%S')}")
-
-        # actual HTTP request to OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a helpful AI assistant named Lotus."},
+                {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
                 {"role": "user", "content": safe_text}
             ]
         )
-
-        # 🕒 end timer
-        end = time.time()
-        duration = end - start
-        logger.info(f"✅ [DEBUG] GPT request completed in {duration:.2f} seconds")
-
-        # optional: threshold alert
-        if duration > 5:
-            print("⚠️ [WARNING] GPT request exceeded 5 seconds (possible stall)")
-
         return response.choices[0].message.content or "[GPT returned empty message]"
-
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
@@ -279,29 +262,18 @@ async def twilio_voice_webhook(request: Request):
     session_memory[call_sid]["transcript_version"] = 0
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    start = time.time()
-    logger.info(f"⏱️ [DEBUG] ElevenLabs request started at {time.strftime('%H:%M:%S')}")
-
-    try:
-        elevenlabs_response = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-            headers={
-                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                "Content-Type": "application/json"
-            },
-            json={
-                "text": gpt_text,
-                "model_id": "eleven_flash_v2_5",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
-        )
-    finally:
-        end = time.time()
-        duration = end - start
-        logger.info(f"✅ [DEBUG] ElevenLabs request completed in {duration:.2f} seconds")
-
-        if duration > 5:
-            logger.warning("⚠️ [WARNING] ElevenLabs request exceeded 5 seconds (possible stall)")
+    elevenlabs_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }
+    )
     
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
     print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
@@ -437,19 +409,30 @@ async def greeting_rout(request: Request):
     print(f"✅ GPT greeting: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    elevenlabs_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-        headers={
-            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-            "Content-Type": "application/json"
-        },
-        json={
-            "text": gpt_text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-    )
-    
+    start = time.time()
+    logger.info(f"⏱️ [DEBUG] ElevenLabs request started at {time.strftime('%H:%M:%S')}")
+
+    try:
+        elevenlabs_response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+            headers={
+                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": gpt_text,
+                "model_id": "eleven_flash_v2_5",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
+        )
+    finally:
+        end = time.time()
+        duration = end - start
+        logger.info(f"✅ [DEBUG] ElevenLabs request completed in {duration:.2f} seconds")
+
+        if duration > 5:
+            logger.warning("⚠️ [WARNING] ElevenLabs request exceeded 5 seconds (possible stall)")
+            
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
     print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
