@@ -26,7 +26,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # 🛠️ Touch the log file to verify path
 start = time.time()
-logger.info("⏱️ [DEBUG] Log file write start")
+print("⏱️ [DEBUG] Log file write start (logger not initialized yet)")
 
 with open(LOG_FILE, "a") as f:
     f.write("🟢 Log file was touched.\n")
