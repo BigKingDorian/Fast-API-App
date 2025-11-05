@@ -25,18 +25,18 @@ LOG_FILE = f"{LOG_DIR}/app.log"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # 🛠️ Touch the log file to verify path
-start = time.time()
-print("⏱️ [DEBUG] Log file write start")
+try:
+    start = time.time()
+    print("🟢 File write started")
 
-with open(LOG_FILE, "a") as f:
-    f.write("🟢 Log file was touched.\n")
+    with open(LOG_FILE, "a") as f:
+        f.write("Log file touched.\n")
 
-end = time.time()
-duration = end - start
-print(f"✅ [DEBUG] Log file write took {duration:.4f} seconds")
+    end = time.time()
+    print(f"✅ File write completed in {end - start:.2f} seconds")
 
-if duration > 0.05:
-    logger.warning("⚠️ [SLOW I/O] Log file write exceeded 50ms")
+except Exception as e:
+    print("❌ Exception during file write:", e)
 
 # 🔧 Setup Rotating File Handler
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10_000_000, backupCount=3)
