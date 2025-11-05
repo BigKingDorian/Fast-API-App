@@ -262,30 +262,19 @@ async def twilio_voice_webhook(request: Request):
     session_memory[call_sid]["transcript_version"] = 0
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    start = time.time()
-    logger.info(f"⏱️ [DEBUG] ElevenLabs request started at {time.strftime('%H:%M:%S')}")
-
-    try:
-        elevenlabs_response = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-            headers={
-                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                "Content-Type": "application/json"
-            },
-            json={
-                "text": gpt_text,
-                "model_id": "eleven_flash_v2_5",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
-        )
-    finally:
-        end = time.time()
-        duration = end - start
-        logger.info(f"✅ [DEBUG] ElevenLabs request completed in {duration:.2f} seconds")
-
-        if duration > 5:
-            logger.warning("⚠️ [WARNING] ElevenLabs request exceeded 5 seconds (possible stall)")
-            
+    elevenlabs_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }
+    )
+    
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
     print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
