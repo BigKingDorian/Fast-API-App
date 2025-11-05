@@ -25,18 +25,8 @@ LOG_FILE = f"{LOG_DIR}/app.log"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # 🛠️ Touch the log file to verify path
-try:
-    start = time.time()
-    print("🟢 File write started")
-
-    with open(LOG_FILE, "a") as f:
-        f.write("Log file touched.\n")
-
-    end = time.time()
-    print(f"✅ File write completed in {end - start:.2f} seconds")
-
-except Exception as e:
-    print("❌ Exception during file write:", e)
+with open(LOG_FILE, "a") as f:
+    f.write("🟢 Log file was touched.\n")
 
 # 🔧 Setup Rotating File Handler
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10_000_000, backupCount=3)
@@ -298,9 +288,18 @@ async def twilio_voice_webhook(request: Request):
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
+    start = time.time()
+    logger.info(f"⏱️ [DEBUG] Saving audio to disk at {file_path}")
+
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
-    print(f"💾 Saved original WAV → {file_path}")
+
+    end = time.time()
+    duration = end - start
+    logger.info(f"✅ [DEBUG] Audio file write completed in {duration:.4f} seconds (size={len(audio_bytes)} bytes)")
+
+    if duration > 0.10:  # Audio writes *should* be fast — >100ms is suspicious
+        logger.warning("⚠️ [SLOW I/O] Audio file write exceeded 100ms (possible disk stall)")
 
     await asyncio.sleep(1)
 
