@@ -482,23 +482,29 @@ async def greeting_rout(request: Request):
         print(f"❌ FFmpeg failed: {e}")
         return Response("Audio conversion failed", status_code=500)
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+   
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
-        
+
         # --- Test: os.path.isfile(converted_path)
         start = time.time()
         is_file = os.path.isfile(converted_path)
         end = time.time()
         print(f"⏱️ os.path.isfile(converted_path) took {end - start:.6f}s → {is_file}")
-  
+
+        if is_file:
             print(f"✅ Found converted file after {i * 0.1:.1f}s")
             break
+
         await asyncio.sleep(0.1)
+
     else:
         print("❌ Converted file never appeared — aborting")
         return Response("Converted audio not available", status_code=500)
+
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
+
 
     # ⏱️ Measure duration using ffprobe
     try:
