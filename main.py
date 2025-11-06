@@ -197,8 +197,7 @@ class VerboseStaticFiles(StaticFiles):
         print(f"⏱️ os.access(abs_path, R_OK) took {end - start:.6f}s → {can_read}")
 
         log(
-            f"📂 Static GET {path!r} → exists={exists} "
-            f"readable={readable} size={os.path.getsize(abs_path) if exists else '—'}"
+    f"📂 Static GET {path!r} → exists={exists_abs} readable={can_read} size={os.path.getsize(abs_path) if exists_abs else '—'}"
         )
 
         if not exists:
