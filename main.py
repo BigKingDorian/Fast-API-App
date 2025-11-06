@@ -154,23 +154,20 @@ async def print_gpt_response(sentence: str):
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
     
-    print("⚠️ About to try making static/audio dir")
-    
-    # ---- Measure directory creation ----
-    start = time.time()
     os.makedirs("static/audio", exist_ok=True)
-    end = time.time()
-    print(f"⏱️ mkdir static/audio completed in {end - start:.6f} seconds")
-
-    # ---- Measure file write ----
-    start = time.time()
-    with open(file_path, "wb") as f:
+    with open(file_path, "wb") as f:  # ✅ use dynamic path
         f.write(audio_bytes)
-    end = time.time()
-    print(f"💾 File write to {file_path} took {end - start:.6f} seconds ({len(audio_bytes)} bytes)")
+        print("✅ Audio file saved at:", file_path)
+        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
     for _ in range(10):  # wait up to 5 seconds
-        if os.path.exists(converted_path):
+        
+        # --- Test: os.path.exists(converted_path)
+        start = time.time()
+        exists_conv = os.path.exists(converted_path)
+        end = time.time()
+        print(f"⏱️ os.path.exists(converted_path) took {end - start:.6f}s → {exists_conv}")
+   
             print("✅ File exists for playback:", converted_path)
             break
         print("⌛ Waiting for file to become available...")
@@ -186,8 +183,18 @@ class VerboseStaticFiles(StaticFiles):
         full_url = f"{scheme}://{host}{scope['path']}"
 
         abs_path = os.path.abspath(os.path.join(self.directory, path))
-        exists   = os.path.exists(abs_path)
-        readable = os.access(abs_path, os.R_OK)
+        
+        # --- Test: os.path.exists(abs_path)
+        start = time.time()
+        exists_abs = os.path.exists(abs_path)
+        end = time.time()
+        print(f"⏱️ os.path.exists(abs_path) took {end - start:.6f}s → {exists_abs}")
+
+        # --- Test: os.access(abs_path, os.R_OK)
+        start = time.time()
+        can_read = os.access(abs_path, os.R_OK)
+        end = time.time()
+        print(f"⏱️ os.access(abs_path, R_OK) took {end - start:.6f}s → {can_read}")
 
         log(
             f"📂 Static GET {path!r} → exists={exists} "
@@ -321,7 +328,13 @@ async def twilio_voice_webhook(request: Request):
     except subprocess.CalledProcessError as e:
         print(f"❌ FFmpeg failed: {e}")
         return Response("Audio conversion failed", status_code=500)
-    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+        
+    # --- Test: os.path.abspath(converted_path) ---
+    start = time.time()
+    abs_conv = os.path.abspath(converted_path)
+    end = time.time()
+    print(f"⏱️ os.path.abspath(converted_path) took {end - start:.6f}s → {abs_conv}")
+
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
         if os.path.isfile(converted_path):
@@ -471,7 +484,13 @@ async def greeting_rout(request: Request):
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
-        if os.path.isfile(converted_path):
+        
+        # --- Test: os.path.isfile(converted_path)
+        start = time.time()
+        is_file = os.path.isfile(converted_path)
+        end = time.time()
+        print(f"⏱️ os.path.isfile(converted_path) took {end - start:.6f}s → {is_file}")
+  
             print(f"✅ Found converted file after {i * 0.1:.1f}s")
             break
         await asyncio.sleep(0.1)
