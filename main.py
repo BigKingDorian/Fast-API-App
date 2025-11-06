@@ -88,7 +88,7 @@ session_memory = {}
 
 # ⚙️ FastAPI app
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", VerboseStaticFiles(directory="static"), name="static")
 
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
