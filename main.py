@@ -169,9 +169,8 @@ async def print_gpt_response(sentence: str):
         f.write(audio_bytes)
     end = time.time()
     print(f"💾 File write to {file_path} took {end - start:.6f} seconds ({len(audio_bytes)} bytes)")
-
-        print("✅ Audio file saved at:", file_path)
-        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+    print("✅ Audio file saved at:", file_path)
+    print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
     for _ in range(10):  # wait up to 5 seconds
         if os.path.exists(converted_path):
