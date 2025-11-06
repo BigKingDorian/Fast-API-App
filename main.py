@@ -154,11 +154,18 @@ async def print_gpt_response(sentence: str):
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
     
+    # ---- Measure directory creation ----
+    start = time.time()
     os.makedirs("static/audio", exist_ok=True)
-    with open(file_path, "wb") as f:  # ✅ use dynamic path
+    end = time.time()
+    print(f"⏱️ mkdir static/audio completed in {end - start:.6f} seconds")
+
+    # ---- Measure file write ----
+    start = time.time()
+    with open(file_path, "wb") as f:
         f.write(audio_bytes)
-        print("✅ Audio file saved at:", file_path)
-        print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
+    end = time.time()
+    print(f"💾 File write to {file_path} took {end - start:.6f} seconds ({len(audio_bytes)} bytes)")
         
     for _ in range(10):  # wait up to 5 seconds
         if os.path.exists(converted_path):
