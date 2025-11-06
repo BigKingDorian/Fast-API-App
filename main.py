@@ -160,22 +160,22 @@ async def print_gpt_response(sentence: str):
         print("✅ Audio file saved at:", file_path)
         print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
-    for _ in range(10):  # wait up to 5 seconds
-        
-        # --- Test: os.path.exists(converted_path)
+    for _ in range(10):
         start = time.time()
         exists_conv = os.path.exists(converted_path)
         end = time.time()
         print(f"⏱️ os.path.exists(converted_path) took {end - start:.6f}s → {exists_conv}")
-   
-        print("✅ File exists for playback:", converted_path)
-        break
-        
+
+        if exists_conv:
+            print("✅ File exists for playback:", converted_path)
+            break
+
         print("⌛ Waiting for file to become available...")
         time.sleep(0.5)
+        
     else:
         print("❌ File still not found after 5 seconds!")
-        
+            
 class VerboseStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         #Build full URL
@@ -201,7 +201,7 @@ class VerboseStaticFiles(StaticFiles):
     f"📂 Static GET {path!r} → exists={exists_abs} readable={can_read} size={os.path.getsize(abs_path) if exists_abs else '—'}"
         )
 
-        if not exists:
+        if not exists_abs:
             try:
                 parent = os.path.dirname(abs_path)
                 log("📑 Dir listing: %s", os.listdir(parent))
