@@ -154,6 +154,8 @@ async def print_gpt_response(sentence: str):
     print(f"🔊 Audio file size: {len(audio_bytes)} bytes")
     print(f"💾 Saving audio to {file_path}")
     
+    print("⚠️ About to try making static/audio dir")
+    
     # ---- Measure directory creation ----
     start = time.time()
     os.makedirs("static/audio", exist_ok=True)
