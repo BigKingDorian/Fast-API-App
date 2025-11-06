@@ -288,18 +288,9 @@ async def twilio_voice_webhook(request: Request):
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
-    start = time.time()
-    logger.info(f"⏱️ [DEBUG] Saving audio to disk at {file_path}")
-
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
-
-    end = time.time()
-    duration = end - start
-    logger.info(f"✅ [DEBUG] Audio file write completed in {duration:.4f} seconds (size={len(audio_bytes)} bytes)")
-
-    if duration > 0.10:  # Audio writes *should* be fast — >100ms is suspicious
-        logger.warning("⚠️ [SLOW I/O] Audio file write exceeded 100ms (possible disk stall)")
+    print(f"💾 Saved original WAV → {file_path}")
 
     await asyncio.sleep(1)
 
