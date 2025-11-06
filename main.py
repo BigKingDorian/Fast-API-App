@@ -304,6 +304,9 @@ async def twilio_voice_webhook(request: Request):
         
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+
+    # --- Measure ONLY the ffmpeg subprocess time ---
+    start = time.time()
     try:
         subprocess.run([
             "/usr/bin/ffmpeg", "-y", "-i", file_path,
@@ -312,7 +315,11 @@ async def twilio_voice_webhook(request: Request):
     except subprocess.CalledProcessError as e:
         print(f"❌ FFmpeg failed: {e}")
         return Response("Audio conversion failed", status_code=500)
+    end = time.time()
+
+    print(f"⏱️ FFmpeg subprocess.run() took {end - start:.4f} seconds")
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+    
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
         if os.path.isfile(converted_path):
