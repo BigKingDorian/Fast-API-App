@@ -161,14 +161,14 @@ async def print_gpt_response(sentence: str):
     start = time.time()
     os.makedirs("static/audio", exist_ok=True)
     end = time.time()
-    print(f"⏱️ mkdir static/audio completed in {end - start:.6f} seconds")
+    logger.info(f"⏱️ mkdir static/audio completed in {end - start:.6f} seconds")
 
     # ---- Measure file write ----
     start = time.time()
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     end = time.time()
-    print(f"💾 File write to {file_path} took {end - start:.6f} seconds ({len(audio_bytes)} bytes)")
+    logger.info(f"💾 File write to {file_path} took {end - start:.6f} seconds ({len(audio_bytes)} bytes)")
     print("✅ Audio file saved at:", file_path)
     print(f"🎧 Got {len(audio_bytes)} audio bytes from ElevenLabs")
         
