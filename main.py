@@ -168,8 +168,9 @@ async def print_gpt_response(sentence: str):
         end = time.time()
         print(f"⏱️ os.path.exists(converted_path) took {end - start:.6f}s → {exists_conv}")
    
-            print("✅ File exists for playback:", converted_path)
-            break
+        print("✅ File exists for playback:", converted_path)
+        break
+        
         print("⌛ Waiting for file to become available...")
         time.sleep(0.5)
     else:
