@@ -273,8 +273,8 @@ async def post2(request: Request):
     session_memory[call_sid]["transcript_version"] = 0
 
     vr = VoiceResponse()
-    vr.redirect("/3")  # ✅ continue chain
-    print("👋 Redirecting to /3")
+    vr.redirect("/wait2")  # ✅ continue chain
+    print("👋 Redirecting to /wait2")
     return Response(str(vr), media_type="application/xml")
 
 
@@ -591,6 +591,25 @@ async def greeting_rout(request: Request):
 
     # ✅ Redirect to POST after /wait
     vr.redirect("/")
+    print("📝 Returning TwiML to Twilio (with redirect).")
+    return Response(content=str(vr), media_type="application/xml")
+
+@app.post("/wait2")
+async def greeting_rout(request: Request):
+    print("\n📞 ── [POST] WAIT2 handler hit ───────────────────────────────────")
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    print(f"🆔 Call SID: {call_sid}")
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    
+    # Pause success Tested 9-25-25
+    vr = VoiceResponse()
+    vr.pause(length=1)
+    print("✅ Heartbeat sent: <Pause length='1'/>")
+    await asyncio.sleep(1)
+
+    # ✅ Redirect to POST after /wait
+    vr.redirect("/3")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
