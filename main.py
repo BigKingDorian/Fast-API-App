@@ -249,17 +249,43 @@ async def twilio_voice_webhook(request: Request):
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
     session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
 
-    # Simple transcript quality check
+    vr = VoiceResponse()
+    vr.redirect("/2")  # ✅ First redirect
+    print("👋 Redirecting to /2")
+    return Response(str(vr), media_type="application/xml")
+
+@app.post("/2")
+async def post2(request: Request):
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid")
+
+    # ✅ Retrieve transcript
+    gpt_input = session_memory[call_sid]["user_transcript"]
+    session_memory[call_sid]["last_responded_version"] = new_version
+
     if not gpt_input or len(gpt_input.strip()) < 4:
-        print("⚠️ Transcript too short or missing — asking user to repeat")
-        gpt_text = "Sorry, I didn't catch that. Could you please repeat yourself?"
+        gpt_text = "Sorry, I didn't catch that. Could you repeat that?"
     else:
         gpt_text = await get_gpt_response(gpt_input)
 
-    # 🧼 Clear the transcript to avoid reuse in next round
-    log(f"🧹 Clearing user_transcript (v{session_memory[call_sid].get('transcript_version')}) for {call_sid}: {repr(session_memory[call_sid].get('user_transcript'))}")
+    # ✅ Store GPT output for next stage
+    session_memory[call_sid]["gpt_text"] = gpt_text
     session_memory[call_sid]["user_transcript"] = None
     session_memory[call_sid]["transcript_version"] = 0
+
+    vr = VoiceResponse()
+    vr.redirect("/3")  # ✅ continue chain
+    print("👋 Redirecting to /3")
+    return Response(str(vr), media_type="application/xml")
+
+
+@app.post("/3")
+async def post3(request: Request):
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid")
+
+    # ✅ Retrieve GPT output saved in /2
+    gpt_text = session_memory.get(call_sid, {}).get("gpt_text")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
