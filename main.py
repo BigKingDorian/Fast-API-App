@@ -259,6 +259,9 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
+    session_memory[call_sid]["gpt_response_ready"] = True
+    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
+
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid]["user_transcript"]
 
@@ -282,6 +285,9 @@ async def post2(request: Request):
 async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
+
+    session_memory[call_sid]["gpt_response_ready"] = False
+    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
 
     # ✅ Retrieve GPT output saved in /2
     gpt_text = session_memory.get(call_sid, {}).get("gpt_text")
