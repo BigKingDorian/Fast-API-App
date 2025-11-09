@@ -261,7 +261,6 @@ async def post2(request: Request):
 
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid]["user_transcript"]
-    session_memory[call_sid]["last_responded_version"] = new_version
 
     if not gpt_input or len(gpt_input.strip()) < 4:
         gpt_text = "Sorry, I didn't catch that. Could you repeat that?"
