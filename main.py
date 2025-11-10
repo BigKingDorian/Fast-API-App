@@ -137,6 +137,9 @@ async def get_gpt_response(user_text: str) -> str:
         print(f"⚠️ GPT Error: {e}")
         return "[GPT failed to respond]"
 
+    session_memory[call_sid]["gpt_response_ready"] = True
+    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
+
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
@@ -259,9 +262,6 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    session_memory[call_sid]["gpt_response_ready"] = True
-    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
-
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid]["user_transcript"]
 
@@ -279,7 +279,6 @@ async def post2(request: Request):
     vr.redirect("/wait2")  # ✅ continue chain
     print("👋 Redirecting to /wait2")
     return Response(str(vr), media_type="application/xml")
-
 
 @app.post("/3")
 async def post3(request: Request):
@@ -615,7 +614,7 @@ async def greeting_rout(request: Request):
     await asyncio.sleep(1)
 
     # ✅ Redirect to POST after /wait
-    vr.redirect("/3")
+    vr.redirect("/2")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
