@@ -263,21 +263,34 @@ async def post2(request: Request):
     call_sid = form_data.get("CallSid")
 
     # ✅ Retrieve transcript
-    gpt_input = session_memory[call_sid]["user_transcript"]
+    gpt_input = session_memory[call_sid].get("user_transcript")
 
+    # Transcript Health Check
     if not gpt_input or len(gpt_input.strip()) < 4:
         gpt_text = "Sorry, I didn't catch that. Could you repeat that?"
     else:
-        gpt_text = await get_gpt_response(gpt_input)
+        gpt_text = gpt_input
 
-    # ✅ Store GPT output for next stage
-    session_memory[call_sid]["gpt_text"] = gpt_text
-    session_memory[call_sid]["user_transcript"] = None
-    session_memory[call_sid]["transcript_version"] = 0
+    # ✅ Kick off GPT response only once
+    if not session_memory[call_sid].get("get_gpt_response_started"):
+        session_memory[call_sid]["get_gpt_response_started"] = True
+        loop.create_task(get_gpt_response(call_sid))
 
+    # ✅ Create voice response
     vr = VoiceResponse()
-    vr.redirect("/wait2")  # ✅ continue chain
-    print("👋 Redirecting to /wait2")
+
+    # ✅ Decide where to redirect based on GPT response status
+    if session_memory[call_sid].get("gpt_response_ready"):
+        session_memory[call_sid]["gpt_text"] = gpt_text
+        session_memory[call_sid]["user_transcript"] = None
+        session_memory[call_sid]["transcript_version"] = 0
+
+        vr.redirect("/post3")
+        print("👋 Redirecting to /3")
+    else:
+        vr.redirect("/wait2")
+        print("👋 Redirecting to /wait2")
+
     return Response(str(vr), media_type="application/xml")
 
 @app.post("/3")
