@@ -271,9 +271,9 @@ async def post2(request: Request):
     else:
         gpt_text = gpt_input
 
-    # ✅ Kick off GPT response only once
     if not session_memory[call_sid].get("get_gpt_response_started"):
         session_memory[call_sid]["get_gpt_response_started"] = True
+        loop = asyncio.get_event_loop()
         loop.create_task(get_gpt_response(call_sid))
 
     # ✅ Create voice response
