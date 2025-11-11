@@ -304,6 +304,7 @@ async def post3(request: Request):
     # Reset GPT flags so next question works
     session_memory[call_sid]["gpt_response_ready"] = False
     session_memory[call_sid]["get_gpt_response_started"] = False
+    session_memory[call_sid]["user_transcript"] = None
 
     # ✅ Retrieve GPT output saved in get_gpt_response()
     gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
