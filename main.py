@@ -120,11 +120,11 @@ def get_last_audio_for_call(call_sid):
         return None
 
 # ✅ GPT handler function
-async def get_gpt_response(user_text: str) -> str:
+async def get_gpt_response(call_sid: str) -> None:
     try:
-        safe_text = "" if user_text is None else str(user_text)
-        if not safe_text.strip():
-            safe_text = "Hello, how can I help you today?"
+        gpt_input = session_memory[call_sid]["user_transcript"]
+        safe_text = gpt_input.strip() if gpt_input else "Hello, how can I help you today?"
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -132,13 +132,18 @@ async def get_gpt_response(user_text: str) -> str:
                 {"role": "user", "content": safe_text}
             ]
         )
-        return response.choices[0].message.content or "[GPT returned empty message]"
+
+        gpt_text = response.choices[0].message.content or "[GPT returned empty message]"
+
+        # ✅ Save to memory and flip the flag
+        session_memory[call_sid]["gpt_text"] = gpt_text
+        session_memory[call_sid]["gpt_response_ready"] = True
+        print(f"🚩 Flag set: gpt_response_ready = True for session {call_sid}")
+
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
-        return "[GPT failed to respond]"
-
-    session_memory[call_sid]["gpt_response_ready"] = True
-    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
+        session_memory[call_sid]["gpt_response_ready"] = True
+        session_memory[call_sid]["gpt_text"] = "[GPT failed to respond]"
 
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
@@ -265,16 +270,9 @@ async def post2(request: Request):
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid].get("user_transcript")
 
-    # Transcript Health Check
-    if not gpt_input or len(gpt_input.strip()) < 4:
-        gpt_text = "Sorry, I didn't catch that. Could you repeat that?"
-    else:
-        gpt_text = gpt_input
-
     if not session_memory[call_sid].get("get_gpt_response_started"):
         session_memory[call_sid]["get_gpt_response_started"] = True
-        loop = asyncio.get_event_loop()
-        loop.create_task(get_gpt_response(call_sid))
+        asyncio.create_task(get_gpt_response(call_sid))
 
     # ✅ Create voice response
     vr = VoiceResponse()
