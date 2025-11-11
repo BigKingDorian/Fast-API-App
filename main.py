@@ -270,24 +270,29 @@ async def post2(request: Request):
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid].get("user_transcript")
 
+    # ✅ If no transcript or unclear, just go back to WAIT2 loops
+    if not gpt_input or len(gpt_input.strip()) < 4:
+        # No point starting GPT here — just keep waiting for speech
+        vr = VoiceResponse()
+        vr.redirect("/wait2")
+        print("⚠️ No valid transcript — redirecting to /wait2")
+        return Response(str(vr), media_type="application/xml")
+
+    # ✅ If GPT isn’t started yet, start it **once**
     if not session_memory[call_sid].get("get_gpt_response_started"):
         session_memory[call_sid]["get_gpt_response_started"] = True
         asyncio.create_task(get_gpt_response(call_sid))
+        print("🚀 Started GPT task in background")
 
-    # ✅ Create voice response
     vr = VoiceResponse()
 
-    # ✅ Decide where to redirect based on GPT response status
+    # ✅ If GPT finished, move to /3
     if session_memory[call_sid].get("gpt_response_ready"):
-        session_memory[call_sid]["gpt_text"] = gpt_text
-        session_memory[call_sid]["user_transcript"] = None
-        session_memory[call_sid]["transcript_version"] = 0
-
-        vr.redirect("/post3")
-        print("👋 Redirecting to /3")
+        print("✅ GPT response is ready — redirecting to /3")
+        vr.redirect("/3")
     else:
+        print("⏳ GPT not ready — redirecting to /wait2")
         vr.redirect("/wait2")
-        print("👋 Redirecting to /wait2")
 
     return Response(str(vr), media_type="application/xml")
 
@@ -296,11 +301,12 @@ async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
+    # Reset the flag for next turn
     session_memory[call_sid]["gpt_response_ready"] = False
-    print(f"🚩 Flag set: gpt_response_ready = {session_memory[call_sid]['gpt_response_ready']} for session {call_sid} at {time.time()}")
 
-    # ✅ Retrieve GPT output saved in /2
-    gpt_text = session_memory.get(call_sid, {}).get("gpt_text")
+    # ✅ Retrieve GPT output saved in get_gpt_response()
+    gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
+    print(f"🧠 GPT returned text: {gpt_text}")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
     elevenlabs_response = requests.post(
