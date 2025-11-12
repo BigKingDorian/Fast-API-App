@@ -350,7 +350,17 @@ async def post3(request: Request):
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
         return Response("Audio generation failed.", status_code=500)
-        
+
+    vr = VoiceResponse()
+    vr.redirect("/wait3")  # ✅ First redirect
+    print("👋 Redirecting to /wait3")
+    return Response(str(vr), media_type="application/xml")
+
+@app.post("/4")
+async def post2(request: Request):
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid")
+  
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
 
@@ -634,6 +644,25 @@ async def greeting_rout(request: Request):
 
     # ✅ Redirect to POST after /wait
     vr.redirect("/2")
+    print("📝 Returning TwiML to Twilio (with redirect).")
+    return Response(content=str(vr), media_type="application/xml")
+
+@app.post("/wait3")
+async def greeting_rout(request: Request):
+    print("\n📞 ── [POST] WAIT3 handler hit ───────────────────────────────────")
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    print(f"🆔 Call SID: {call_sid}")
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    
+    # Pause success Tested 9-25-25
+    vr = VoiceResponse()
+    vr.pause(length=1)
+    print("✅ Heartbeat sent: <Pause length='1'/>")
+    await asyncio.sleep(1)
+
+    # ✅ Redirect to POST after /wait
+    vr.redirect("/4")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
