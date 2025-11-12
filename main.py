@@ -121,7 +121,7 @@ def get_last_audio_for_call(call_sid):
 
 async def get_11labs_audio(call_sid: str):
     try:
-        url = "https://api.elevenlabs.io/v1/text-to-speech/YOUR_VOICE_ID"
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
         headers = {
             "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
             "Content-Type": "application/json"
@@ -133,6 +133,11 @@ async def get_11labs_audio(call_sid: str):
                 "similarity_boost": 0.8
             }
         }
+
+        if response.status_code != 200:
+            print("❌ ElevenLabs returned non-200:", response.status_code)
+            print("📝 ElevenLabs body:", response.text[:500])
+            return None, None
 
         response = requests.post(url, headers=headers, json=data)
 
