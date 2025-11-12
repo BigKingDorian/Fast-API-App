@@ -143,17 +143,19 @@ async def get_11labs_audio(call_sid: str):
         with open(file_path, "wb") as f:
             f.write(response.content)
 
-        # Save the path + unique_id
         session_memory[call_sid]["eleven_file_path"] = file_path
         session_memory[call_sid]["eleven_unique_id"] = unique_id
         session_memory[call_sid]["elevenlabs_ready"] = True
 
-        session_memory[call_sid]["elevenlabs_ready"] = True
         print(f"✅ ElevenLabs audio saved for {call_sid}")
+
+        # 🔥🔥🔥 THE MISSING RETURN 🔥🔥🔥
+        return file_path, unique_id
 
     except Exception as e:
         print(f"❌ Error in get_11labs_audio: {e}")
         session_memory[call_sid]["elevenlabs_ready"] = False
+        return None, None  # prevent unpacking errors
 
 # ✅ GPT handler function
 async def get_gpt_response(call_sid: str) -> None:
