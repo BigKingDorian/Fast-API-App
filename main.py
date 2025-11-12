@@ -337,6 +337,9 @@ async def post3(request: Request):
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
+    session_memory[call_sid]["unique_id"] = unique_id
+    session_memory[call_sid]["file_path"] = file_path
+
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved original WAV → {file_path}")
@@ -357,10 +360,17 @@ async def post3(request: Request):
     return Response(str(vr), media_type="application/xml")
 
 @app.post("/4")
-async def post2(request: Request):
+async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
-  
+
+    unique_id = session_memory[call_sid].get("unique_id")
+    file_path = session_memory[call_sid].get("file_path")
+
+    if not unique_id or not file_path:
+        print("❌ Missing unique_id or file_path in session_memory")
+        return Response("Server error", status_code=500)
+
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
 
