@@ -136,9 +136,17 @@ async def get_11labs_audio(call_sid: str):
 
         response = requests.post(url, headers=headers, json=data)
 
-        # Save audio file
-        with open(f"audio_output/{call_sid}.mp3", "wb") as f:
+        # Generate a unique filename for this call
+        unique_id = uuid.uuid4().hex
+        file_path = f"static/audio/response_{unique_id}.wav"
+
+        with open(file_path, "wb") as f:
             f.write(response.content)
+
+        # Save the path + unique_id
+        session_memory[call_sid]["eleven_file_path"] = file_path
+        session_memory[call_sid]["eleven_unique_id"] = unique_id
+        session_memory[call_sid]["elevenlabs_ready"] = True
 
         session_memory[call_sid]["elevenlabs_ready"] = True
         print(f"✅ ElevenLabs audio saved for {call_sid}")
@@ -339,7 +347,7 @@ async def post3(request: Request):
     print(f"🧠 GPT returned text: {gpt_text}")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    await get_11labs_audio(call_sid)
+    file_path, unique_id = await get_11labs_audio(call_sid)
         
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
