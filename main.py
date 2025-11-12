@@ -337,8 +337,11 @@ async def post3(request: Request):
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
+    # Save everything needed for later use in /4
     session_memory[call_sid]["unique_id"] = unique_id
     session_memory[call_sid]["file_path"] = file_path
+    session_memory[call_sid]["audio_bytes"] = audio_bytes
+    session_memory[call_sid]["gpt_text"] = gpt_text   # also required later
 
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
@@ -415,10 +418,15 @@ async def post4(request: Request):
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
     
-    # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
+    audio_bytes = session_memory[call_sid].get("audio_bytes")
+    gpt_text = session_memory[call_sid].get("gpt_text")
+
+    if not audio_bytes:
+        print("❌ audio_bytes missing in session_memory")
+        return Response("Audio error", status_code=500)
+
     if len(audio_bytes) > 2000:
         save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
-        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
