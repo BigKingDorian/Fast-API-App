@@ -448,7 +448,6 @@ async def post4(request: Request):
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
-        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -595,7 +594,6 @@ async def greeting_rout(request: Request):
     for _ in range(10):
         current_path = get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
-        print(f"🔎 Full session_memory[{call_sid}] = {json.dumps(session_memory.get(call_sid), indent=2)}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
