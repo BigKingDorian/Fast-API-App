@@ -383,6 +383,8 @@ async def post3(request: Request):
 async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
+        
+    vr = VoiceResponse()
 
     session_memory[call_sid]["11labs_audio_fetch_started"] = False
     print(f"🚩 Flag set: 11labs_audio_fetch_started = False for session {call_sid}")
