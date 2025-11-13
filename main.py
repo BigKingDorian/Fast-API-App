@@ -934,15 +934,16 @@ async def media_stream(ws: WebSocket):
         print("✅ Deepgram connection started")
 
         # -------------------------------------------------
-        # 🟢 KEEP-ALIVE LOOP — PREVENTS NET-0001 / 1011
+        # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
         # -------------------------------------------------
+        SILENCE_FRAME = b"\x00" * 160  # 20ms of silence @ 8000 Hz MULAW
+
         async def deepgram_keepalive():
             while True:
                 try:
-                    # Send every 3–4 seconds
-                    await asyncio.sleep(4)
-                    await dg_connection.send(json.dumps({"type": "KeepAlive"}))
-                    print("📡 Sent KeepAlive to Deepgram")
+                    await asyncio.sleep(4)  # every 4 seconds
+                    dg_connection.send(SILENCE_FRAME)
+                    print("📡 Sent SILENT audio keep-alive to Deepgram")
                 except Exception as e:
                     print(f"⚠️ KeepAlive error: {e}")
                     break
