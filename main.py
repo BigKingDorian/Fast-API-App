@@ -383,7 +383,10 @@ async def post3(request: Request):
 async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
-        
+
+    session_memory[call_sid]["ffmpeg_audio_fetch_started"] = True
+    print(f"🚩 Flag set: ffmpeg_audio_fetch_started = True for session {call_sid}")
+
     vr = VoiceResponse()
 
     session_memory[call_sid]["11labs_audio_fetch_started"] = False
@@ -454,6 +457,9 @@ async def post4(request: Request):
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
+    session_memory[call_sid]["ffmpeg_audio_ready"] = True
+    print(f"🚩 Flag set: ffmpeg_audio_ready = True for session {call_sid}")
+
     vr.redirect("/wait4")
     print("👋 Redirecting to /wait4")
     return Response(str(vr), media_type="application/xml")
@@ -462,7 +468,13 @@ async def post4(request: Request):
 async def post5(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
+
+    session_memory[call_sid]["ffmpeg_audio_ready"] = False
+    print(f"🚩 Flag set: ffmpeg_audio_ready = False for session {call_sid}")
     
+    session_memory[call_sid]["ffmpeg_audio_fetch_started"] = False
+    print(f"🚩 Flag set: ffmpeg_audio_fetch_started = False for session {call_sid}")
+
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
