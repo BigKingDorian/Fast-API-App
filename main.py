@@ -301,6 +301,9 @@ async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
+    session_memory[call_sid]["11labs_audio_fetch_started"] = True
+    print(f"🚩 Flag set: 11labs_audio_fetch_started = True for session {call_sid}")
+
     # Reset GPT flags so next question works
     session_memory[call_sid]["gpt_response_ready"] = False
     session_memory[call_sid]["get_gpt_response_started"] = False
@@ -357,6 +360,9 @@ async def post3(request: Request):
         print("📜 Response:", elevenlabs_response.text)
         return Response("Audio generation failed.", status_code=500)
 
+    session_memory[call_sid]["11labs_audio_ready"] = True
+    print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+
     vr = VoiceResponse()
     vr.redirect("/wait3")  # ✅ First redirect
     print("👋 Redirecting to /wait3")
@@ -366,6 +372,11 @@ async def post3(request: Request):
 async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
+
+    session_memory[call_sid]["11labs_audio_fetch_started"] = False
+    print(f"🚩 Flag set: 11labs_audio_fetch_started = False for session {call_sid}")
+    session_memory[call_sid]["11labs_audio_ready"] = False
+    print(f"🚩 Flag set: 11labs_audio_ready = False for session {call_sid}")
 
     unique_id = session_memory[call_sid].get("unique_id")
     file_path = session_memory[call_sid].get("file_path")
