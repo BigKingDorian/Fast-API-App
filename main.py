@@ -452,6 +452,15 @@ async def post4(request: Request):
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
+    vr.redirect("/wait4")
+    print("👋 Redirecting to /wait4")
+    return Response(str(vr), media_type="application/xml")
+
+@app.post("/5")
+async def post5(request: Request):
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid")
+    
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
@@ -701,6 +710,25 @@ async def greeting_rout(request: Request):
 
     # ✅ Redirect to POST after /wait
     vr.redirect("/3")
+    print("📝 Returning TwiML to Twilio (with redirect).")
+    return Response(content=str(vr), media_type="application/xml")
+
+@app.post("/wait4")
+async def greeting_rout(request: Request):
+    print("\n📞 ── [POST] WAIT4 handler hit ───────────────────────────────────")
+    form_data = await request.form()
+    call_sid = form_data.get("CallSid") or str(uuid.uuid4())
+    print(f"🆔 Call SID: {call_sid}")
+    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    
+    # Pause success Tested 9-25-25
+    vr = VoiceResponse()
+    vr.pause(length=1)
+    print("✅ Heartbeat sent: <Pause length='1'/>")
+    await asyncio.sleep(1)
+
+    # ✅ Redirect to POST after /wait
+    vr.redirect("/5")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
