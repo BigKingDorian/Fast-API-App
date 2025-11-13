@@ -120,8 +120,8 @@ def get_last_audio_for_call(call_sid):
         return None
 
 async def get_11labs_audio(call_sid):
-    session_memory[call_sid]["11labs_audio_fetch_started"] = True
-    print(f"🚩 Flag set: 11labs_audio_fetch_started = True for session {call_sid}")
+    if call_sid not in session_memory:
+    session_memory[call_sid] = {}
 
     # Reset GPT flags so next question works
     session_memory[call_sid]["gpt_response_ready"] = False
@@ -177,10 +177,9 @@ async def get_11labs_audio(call_sid):
         print("🔁 GPT Text:", gpt_text)
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
-        return Response("Audio generation failed.", status_code=500)
-
-    session_memory[call_sid]["11labs_audio_ready"] = True
-    print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+        
+        session_memory[call_sid]["11labs_audio_ready"] = True
+        print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
 
 # ✅ GPT handler function
 async def get_gpt_response(call_sid: str) -> None:
@@ -381,8 +380,6 @@ async def post3(request: Request):
         print("⏳ 11Labs not ready — redirecting to /wait3")
         vr.redirect("/wait3")
 
-    return Response(str(vr), media_type="application/xml")
-
     vr = VoiceResponse()
     vr.redirect("/wait3")  # ✅ First redirect
     print("👋 Redirecting to /wait3")
@@ -517,7 +514,7 @@ async def greeting_rout(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
     print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-
+    
     # ── 2. 1 TIME GREETING ───────────────────────────────────────
     gpt_text = "Hello my name is Lotus, how can I help you today?"        
     print(f"✅ GPT greeting: \"{gpt_text}\"")
@@ -561,7 +558,7 @@ async def greeting_rout(request: Request):
         print("🔁 GPT Text:", gpt_text)
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
-        return Response("Audio generation failed.", status_code=500)
+        return 
         
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
