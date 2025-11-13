@@ -363,8 +363,6 @@ async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-
-    # ✅ If 11Labs isn’t started yet, start it **once**
     if not session_memory[call_sid].get("11labs_audio_fetch_started"):
         session_memory[call_sid]["11labs_audio_fetch_started"] = True
         asyncio.create_task(get_11labs_audio(call_sid))
@@ -372,13 +370,12 @@ async def post3(request: Request):
 
     vr = VoiceResponse()
 
-    # ✅ If 11Labs finished, move to /4
     if session_memory[call_sid].get("11labs_audio_ready"):
         print("✅ 11 Labs audio is ready — redirecting to /4")
         vr.redirect("/4")
+        return Response(str(vr), media_type="application/xml")  # ✅ FIX
     else:
-        vr = VoiceResponse()
-        vr.redirect("/wait3")  # ✅ First redirect
+        vr.redirect("/wait3")
         print("👋 Redirecting to /wait3")
         return Response(str(vr), media_type="application/xml")
 
