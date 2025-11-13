@@ -926,7 +926,23 @@ async def media_stream(ws: WebSocket):
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
-        
+
+        # -------------------------------------------------
+        # 🟢 KEEP-ALIVE LOOP — PREVENTS NET-0001 / 1011
+        # -------------------------------------------------
+        async def deepgram_keepalive():
+            while True:
+                try:
+                    # Send every 3–4 seconds
+                    await asyncio.sleep(4)
+                    await dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                    print("📡 Sent KeepAlive to Deepgram")
+                except Exception as e:
+                    print(f"⚠️ KeepAlive error: {e}")
+                    break
+
+        loop.create_task(deepgram_keepalive())
+ 
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
