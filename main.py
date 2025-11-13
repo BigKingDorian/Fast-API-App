@@ -831,6 +831,12 @@ async def media_stream(ws: WebSocket):
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
+                                # STOP immediately if we already processed a final transcript this turn
+                                if session_memory[sid].get("user_response_processing"):
+                                    # ignore all future speech_final and final transcripts
+                                    print(f"🚫 Ignoring transcript — already processing user response for {sid}")
+                                    return
+
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
                                     return  # Exit early, skipping the save logic below
