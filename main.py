@@ -169,6 +169,9 @@ async def get_11labs_audio(call_sid):
         f.write(audio_bytes)
     print(f"💾 Saved original WAV → {file_path}")
 
+    session_memory[call_sid]["11labs_audio_ready"] = True
+    print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+
     await asyncio.sleep(1)
 
     # ✅ Failure check with print statements
@@ -177,9 +180,6 @@ async def get_11labs_audio(call_sid):
         print("🔁 GPT Text:", gpt_text)
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
-        
-    session_memory[call_sid]["11labs_audio_ready"] = True
-    print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
 
 # ✅ GPT handler function
 async def get_gpt_response(call_sid: str) -> None:
