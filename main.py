@@ -377,13 +377,10 @@ async def post3(request: Request):
         print("✅ 11 Labs audio is ready — redirecting to /4")
         vr.redirect("/4")
     else:
-        print("⏳ 11Labs not ready — redirecting to /wait3")
-        vr.redirect("/wait3")
-
-    vr = VoiceResponse()
-    vr.redirect("/wait3")  # ✅ First redirect
-    print("👋 Redirecting to /wait3")
-    return Response(str(vr), media_type="application/xml")
+        vr = VoiceResponse()
+        vr.redirect("/wait3")  # ✅ First redirect
+        print("👋 Redirecting to /wait3")
+        return Response(str(vr), media_type="application/xml")
 
 @app.post("/4")
 async def post4(request: Request):
