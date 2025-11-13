@@ -98,7 +98,7 @@ def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_respons
         session_memory[call_sid]["user_transcript"] = user_transcript
         session_memory[call_sid]["transcript_version"] = time.time()  # 👈 Add this line
 
-            # 🧪 Add log here to inspect the transcript
+        # 🧪 Add log here to inspect the transcript
         log(f"📝 save_transcript helper Saved user_transcript for {call_sid}: {repr(user_transcript)}")
     else:
         # Optional: log when nothing is saved
