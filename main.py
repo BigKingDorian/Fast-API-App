@@ -447,6 +447,13 @@ async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
+    unique_id = session_memory[call_sid].get("unique_id")
+    file_path = session_memory[call_sid].get("file_path")
+
+    if not unique_id or not file_path:
+        print("❌ Missing unique_id or file_path in session_memory")
+        return Response("Server error", status_code=500)
+        
     if not session_memory[call_sid].get("ffmpeg_audio_fetch_started"):
         session_memory[call_sid]["ffmpeg_audio_fetch_started"] = True
         asyncio.create_task(convert_audio_ulaw(call_sid, file_path, unique_id))
@@ -457,13 +464,6 @@ async def post4(request: Request):
         print(f"🚩 Flag set: 11labs_audio_ready = False for session {call_sid}")
 
     vr = VoiceResponse()
-
-    unique_id = session_memory[call_sid].get("unique_id")
-    file_path = session_memory[call_sid].get("file_path")
-
-    if not unique_id or not file_path:
-        print("❌ Missing unique_id or file_path in session_memory")
-        return Response("Server error", status_code=500)
         
     if session_memory[call_sid].get("ffmpeg_audio_ready"):
         print("✅ FFmpeg audio is ready — redirecting to /5")
