@@ -121,65 +121,65 @@ def get_last_audio_for_call(call_sid):
 
 async def get_11labs_audio(call_sid):
     if call_sid not in session_memory:
-    session_memory[call_sid] = {}
+        session_memory[call_sid] = {}
 
-        # Reset GPT flags so next question works
-        session_memory[call_sid]["gpt_response_ready"] = False
-        session_memory[call_sid]["get_gpt_response_started"] = False
-        session_memory[call_sid]["user_transcript"] = None
+    # Reset GPT flags so next question works
+    session_memory[call_sid]["gpt_response_ready"] = False
+    session_memory[call_sid]["get_gpt_response_started"] = False
+    session_memory[call_sid]["user_transcript"] = None
 
-        # ✅ Retrieve GPT output saved in get_gpt_response()
-        gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
-        print(f"🧠 GPT returned text: {gpt_text}")
+    # ✅ Retrieve GPT output saved in get_gpt_response()
+    gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
+    print(f"🧠 GPT returned text: {gpt_text}")
 
-        # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-        elevenlabs_response = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-            headers={
-                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-                "Content-Type": "application/json"
-            },
-            json={
-                "text": gpt_text,
-                "model_id": "eleven_flash_v2_5",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
-        )
+    # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
+    elevenlabs_response = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+        headers={
+            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+            "Content-Type": "application/json"
+        },
+        json={
+            "text": gpt_text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }
+    )
     
-        print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
-        print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
-        print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
-        print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
-        print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
-        print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
-        print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-              f"bytes {len(elevenlabs_response.content)}")
+    print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
+    print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
+    print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
+    print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
+    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+            f"bytes {len(elevenlabs_response.content)}")
 
-        audio_bytes = elevenlabs_response.content
-        unique_id = uuid.uuid4().hex
-        file_path = f"static/audio/response_{unique_id}.wav"
+    audio_bytes = elevenlabs_response.content
+    unique_id = uuid.uuid4().hex
+    file_path = f"static/audio/response_{unique_id}.wav"
 
-        # Save everything needed for later use in /4
-        session_memory[call_sid]["unique_id"] = unique_id
-        session_memory[call_sid]["file_path"] = file_path
-        session_memory[call_sid]["audio_bytes"] = audio_bytes
-        session_memory[call_sid]["gpt_text"] = gpt_text   # also required later
+    # Save everything needed for later use in /4
+    session_memory[call_sid]["unique_id"] = unique_id
+    session_memory[call_sid]["file_path"] = file_path
+    session_memory[call_sid]["audio_bytes"] = audio_bytes
+    session_memory[call_sid]["gpt_text"] = gpt_text   # also required later
 
-        with open(file_path, "wb") as f:
-            f.write(audio_bytes)
-        print(f"💾 Saved original WAV → {file_path}")
+    with open(file_path, "wb") as f:
+        f.write(audio_bytes)
+    print(f"💾 Saved original WAV → {file_path}")
 
-        await asyncio.sleep(1)
+    await asyncio.sleep(1)
 
-        # ✅ Failure check with print statements
-        if not audio_bytes or elevenlabs_response.status_code != 200:
-            print("❌ ElevenLabs failed or returned empty audio!")
-            print("🔁 GPT Text:", gpt_text)
-            print("🛑 Status:", elevenlabs_response.status_code)
-            print("📜 Response:", elevenlabs_response.text)
+    # ✅ Failure check with print statements
+    if not audio_bytes or elevenlabs_response.status_code != 200:
+        print("❌ ElevenLabs failed or returned empty audio!")
+        print("🔁 GPT Text:", gpt_text)
+        print("🛑 Status:", elevenlabs_response.status_code)
+        print("📜 Response:", elevenlabs_response.text)
         
-            session_memory[call_sid]["11labs_audio_ready"] = True
-            print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+        session_memory[call_sid]["11labs_audio_ready"] = True
+        print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
 
 # ✅ GPT handler function
 async def get_gpt_response(call_sid: str) -> None:
