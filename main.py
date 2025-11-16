@@ -936,18 +936,24 @@ async def media_stream(ws: WebSocket):
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
         # -------------------------------------------------
-        SILENCE_FRAME = b"\x00" * 160  # 20ms of silence @ 8000 Hz MULAW
+        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
+
+        dg_connection.last_media_time = time.time()  # initialize timestamp
 
         async def deepgram_keepalive():
             while True:
-                try:
-                    await asyncio.sleep(4)  # every 4 seconds
-                    dg_connection.send(SILENCE_FRAME)
-                    print("📡 Sent SILENT audio keep-alive to Deepgram")
-                except Exception as e:
-                    print(f"⚠️ KeepAlive error: {e}")
-                    break
+                await asyncio.sleep(0.02)  # run every 20ms
 
+                try:
+                    # If Twilio has been silent for 50ms → send silence
+                    if time.time() - dg_connection.last_media_time > 0.05:
+                        dg_connection.send(SILENCE_FRAME)
+                        print("📡 Sent 20ms SILENCE frame to Deepgram")
+
+                except Exception as e:
+                    print(f"⚠️ KeepAlive error sending silence: {e}")
+                    break
+                    
         loop.create_task(deepgram_keepalive())
  
         async def monitor_user_done():
@@ -1014,8 +1020,8 @@ async def media_stream(ws: WebSocket):
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
+                        dg_connection.last_media_time = time.time()
                         dg_connection.send(payload)
-                        last_input_time["ts"] = time.time()
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
