@@ -921,6 +921,8 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
         options = LiveOptions(
             model="nova-3",
