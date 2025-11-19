@@ -950,7 +950,7 @@ async def media_stream(ws: WebSocket):
                     # If Twilio has been silent for 50ms → send silence
                     if time.time() - dg_connection.last_media_time > 0.05:
                         dg_connection.send(SILENCE_FRAME)
-                        print("📡 Sent 20ms SILENCE frame to Deepgram")
+                        #print("📡 Sent 20ms SILENCE frame to Deepgram")
 
                 except Exception as e:
                     print(f"⚠️ KeepAlive error sending silence: {e}")
