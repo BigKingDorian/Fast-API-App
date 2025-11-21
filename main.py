@@ -392,15 +392,6 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # --- CLOSE DEEPGRAM HERE ---
-    dg = session_memory[call_sid].get("dg_connection")
-    if dg:
-        try:
-            dg.finish()    # or dg_connection.finish()
-            print(f"🛑 Closed Deepgram stream for {call_sid}")
-        except Exception as e:
-            print(f"⚠️ Failed to close Deepgram stream for {call_sid}: {e}")
-
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid].get("user_transcript")
 
@@ -799,6 +790,25 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
+        async def deepgram_close_watchdog():
+            while True:
+                await asyncio.sleep(0.02)
+
+                sid = call_sid_holder.get("sid")
+                if not sid:
+                    continue
+
+                if session_memory.get(sid, {}).get("close_requested"):
+                    print(f"🛑 Closing Deepgram for {sid}")
+                    try:
+                        dg_connection.finish()
+                        print(f"🟢 Deepgram closed for {sid}")
+                    except Exception as e:
+                        print(f"⚠️ Error closing Deepgram for {sid}: {e}")
+                    return
+
+        loop.create_task(deepgram_close_watchdog())
+        
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -836,6 +846,10 @@ async def media_stream(ws: WebSocket):
                             final_transcripts.append(sentence)
 
                             if speech_final:
+                                sid = call_sid_holder.get("sid")
+                                session_memory.setdefault(sid, {})
+                                session_memory[sid]["close_requested"] = True
+                                print(f"🛑 Requested Deepgram close for {sid}")
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
@@ -1026,22 +1040,20 @@ async def media_stream(ws: WebSocket):
                 event = msg.get("event")
 
                 if event == "start":
-                    print("▶️ Stream started (StreamSid:", msg["start"].get("streamSid"), ")")
-
-                    # Debug print to inspect what Twilio actually sent
-                    print("🧾 Twilio start event data:", json.dumps(msg["start"], indent=2))
-
-                    # Try all possible keys Twilio might send
                     sid = (
-                        msg["start"].get("callSid") or
-                        msg["start"].get("CallSid") or
-                        msg["start"].get("callerSid") or
-                        msg["start"].get("CallerSid")
+                        msg["start"].get("callSid")
+                        or msg["start"].get("CallSid")
+                        or msg["start"].get("callerSid")
+                        or msg["start"].get("CallerSid")
                     )
 
                     call_sid_holder["sid"] = sid
-                    print(f"📞 [WebSocket] call_sid_holder['sid']: {call_sid_holder['sid']}")
-                    
+
+                    session_memory.setdefault(sid, {})
+                    session_memory[sid].setdefault("close_requested", False)
+
+                    print(f"📞 Stream started for {sid}, close_requested=False")
+
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
