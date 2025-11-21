@@ -957,7 +957,26 @@ async def media_stream(ws: WebSocket):
                     break
                     
         loop.create_task(deepgram_keepalive())
- 
+
+        async def deepgram_text_keepalive():
+            while True:
+                await asyncio.sleep(5)  # Send every 5 seconds
+
+                try:
+                    if dg_connection and not dg_connection._websocket.closed:
+                        dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                        print(f"📨 Sent text KeepAlive at {time.time()}")
+                    else:
+                        print("⚠️ Skipped text KeepAlive — socket closed")
+                        break
+
+                except Exception as e:
+                    print(f"❌ Error sending text KeepAlive: {e}")
+                    break
+
+        # 🔁 Start keepalive task
+        loop.create_task(deepgram_text_keepalive())
+
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
