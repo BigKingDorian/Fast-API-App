@@ -970,6 +970,8 @@ async def media_stream(ws: WebSocket):
                     print(f"❌ Error sending text KeepAlive: {e}")
                     break  # Stop the loop if the connection is closed or broken
 
+        loop.create_task(deepgram_text_keepalive())
+
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
