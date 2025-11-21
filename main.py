@@ -392,6 +392,15 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
+    # --- CLOSE DEEPGRAM HERE ---
+    dg = session_memory[call_sid].get("dg_connection")
+    if dg:
+        try:
+            dg.finish()    # or dg_connection.finish()
+            print(f"🛑 Closed Deepgram stream for {call_sid}")
+        except Exception as e:
+            print(f"⚠️ Failed to close Deepgram stream for {call_sid}: {e}")
+
     # ✅ Retrieve transcript
     gpt_input = session_memory[call_sid].get("user_transcript")
 
