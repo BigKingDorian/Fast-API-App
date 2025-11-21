@@ -973,7 +973,7 @@ async def media_stream(ws: WebSocket):
 
                 try:
                     dg_connection.send(json.dumps({"type": "KeepAlive"}))
-                    print(f"📨 Sent text KeepAlive at {time.time()}")
+                    #print(f"📨 Sent text KeepAlive at {time.time()}")
 
                 except Exception as e:
                     print(f"❌ Error sending text KeepAlive: {e}")
