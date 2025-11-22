@@ -984,12 +984,6 @@ async def media_stream(ws: WebSocket):
         dg_connection.start(options)
         print("✅ Deepgram connection started")
 
-        async def websocket_endpoint(websocket: WebSocket):
-            await websocket.accept()
-
-            # Connect to Deepgram
-            deepgram_connection = await connect_to_deepgram()
-
             # 🚨 TESTING ONLY: trigger 1011 error intentionally
             print("🧪 Test mode: Not sending audio to Deepgram, waiting for timeout...")
             await asyncio.sleep(15)  # This will trigger a 1011 every time
