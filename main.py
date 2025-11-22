@@ -984,11 +984,11 @@ async def media_stream(ws: WebSocket):
         dg_connection.start(options)
         print("✅ Deepgram connection started")
 
-            # 🚨 TESTING ONLY: trigger 1011 error intentionally
-            print("🧪 Test mode: Not sending audio to Deepgram, waiting for timeout...")
-            await asyncio.sleep(15)  # This will trigger a 1011 every time
+        # 🚨 TESTING ONLY: trigger 1011 error intentionally
+        print("🧪 Test mode: Not sending audio to Deepgram, waiting for timeout...")
+        await asyncio.sleep(15)  # This will trigger a 1011 every time
 
-            return  # End early to skip rest of logic during this test
+        return  # End early to skip rest of logic during this test
 
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
