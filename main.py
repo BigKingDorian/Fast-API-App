@@ -1103,3 +1103,4 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error closing WebSocket: {e}")
 
             print("✅ Connection closed")
+            
