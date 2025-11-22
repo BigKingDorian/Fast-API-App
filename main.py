@@ -945,30 +945,7 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        
-        # ---------------------------------------------------
-        # Deepgram ERROR WATCHER — detect 10.11 net 0.0.0.1
-        # ---------------------------------------------------
-        def on_dg_error(err):
-            print(f"🔴 Deepgram error event: {err}")
 
-            try:
-                # Deepgram errors typically come in this structure:
-                # {'error': {'code': 1011, 'message': 'net 0.0.0.1'}}
-                error_obj = err.get("error") if isinstance(err, dict) else None
-
-                if error_obj:
-                    code = error_obj.get("code")
-                    message = error_obj.get("message")
-
-                    if code == 1011 and message == "net 0.0.0.1":
-                        sid = call_sid_holder.get("sid")
-                        print(f"⚠️ DETECTED Deepgram 10.11 net 0.0.0.1 for {sid}")
-
-            except Exception as e:
-                print(f"⚠️ Could not parse Deepgram error payload: {e}")
-
-        # Attach the listener
         dg_connection.on(LiveTranscriptionEvents.Error, on_dg_error)
 
         dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
@@ -1100,9 +1077,19 @@ async def media_stream(ws: WebSocket):
 
         await sender()
 
-    except Exception as e:
-        print(f"⛔ Deepgram error: {e}")
+        except Exception as e:
+            text = str(e)
+            print(f"⛔ Deepgram error: {text!r}")
 
+            # 🔍 Detect 1011 timeout / net 0.0.0.1 here
+            if "code 1011" in text or "net0001" in text or "net 0.0.0.1" in text:
+                sid = call_sid_holder.get("sid")
+                print(f"⚠️ DETECTED Deepgram 10.11 timeout (net 0.0.0.1) for SID={sid}")
+                # you can also set a flag if you want:
+                if sid:
+                    session_memory.setdefault(sid, {})
+                    session_memory[sid]["deepgram_1011"] = True
+                    
     finally:
         if dg_connection:
             try:
