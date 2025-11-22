@@ -634,6 +634,10 @@ async def greeting_rout(request: Request):
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
+    sid = call_sid  # (however you get your sid)
+    session_memory[sid]["close_requested"] = False
+    print(f"🔄 Reset close_requested=False for {sid}")
+
     # Start Deepgram stream
     start = Start()
     start.stream(
