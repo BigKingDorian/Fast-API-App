@@ -1059,7 +1059,7 @@ async def media_stream(ws: WebSocket):
                     call_sid_holder["sid"] = sid
 
                     session_memory.setdefault(sid, {})
-                    session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
+                    session_memory[sid]["close_requested"] = False
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
@@ -1075,30 +1075,31 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     break
 
-        await sender()
+        # ---- The receiving / error-watch block ----
 
+        try:
+            await sender()
         except Exception as e:
             text = str(e)
             print(f"⛔ Deepgram error: {text!r}")
 
-            # 🔍 Detect 1011 timeout / net 0.0.0.1 here
             if "code 1011" in text or "net0001" in text or "net 0.0.0.1" in text:
                 sid = call_sid_holder.get("sid")
                 print(f"⚠️ DETECTED Deepgram 10.11 timeout (net 0.0.0.1) for SID={sid}")
-                # you can also set a flag if you want:
                 if sid:
                     session_memory.setdefault(sid, {})
                     session_memory[sid]["deepgram_1011"] = True
-                    
-    finally:
-        if dg_connection:
+
+        finally:
+            if dg_connection:
+                try:
+                    dg_connection.finish()
+                except Exception as e:
+                    print(f"⚠️ Error closing Deepgram connection: {e}")
+
             try:
-                dg_connection.finish()
+                await ws.close()
             except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
-        try:
-            await ws.close()
-        except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
-        print("✅ Connection closed")
-      
+                print(f"⚠️ Error closing WebSocket: {e}")
+
+            print("✅ Connection closed")
