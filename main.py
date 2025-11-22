@@ -797,7 +797,6 @@ async def media_stream(ws: WebSocket):
         async def deepgram_close_watchdog():
             while True:
                 await asyncio.sleep(0.02)
-
                 sid = call_sid_holder.get("sid")
                 if not sid:
                     continue
@@ -806,11 +805,13 @@ async def media_stream(ws: WebSocket):
                     print(f"🛑 Closing Deepgram for {sid}")
                     try:
                         dg_connection.finish()
-                        print(f"🟢 Deepgram closed for {sid}")
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
-                    return
 
+                    print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
+                    await ws.close()
+                    return      # <-- THIS ENDS /media, allows next turn
+                    
         loop.create_task(deepgram_close_watchdog())
         
         def on_transcript(*args, **kwargs):
