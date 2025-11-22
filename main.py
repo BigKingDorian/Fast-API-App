@@ -90,19 +90,6 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def deepgram_close_watchdog(evt):
-    # evt may be a dict or an object depending on SDK
-    evt_text = str(evt)
-
-    if isinstance(evt, dict):
-        evt_text = json.dumps(evt)
-
-    print(f"🔻 Deepgram CLOSE event received: {evt_text}")
-
-    if "1011" in evt_text:
-        print("🚨 WARNING: Deepgram CLOSE 1011 detected!")
-        session_memory.setdefault("global", {})["deepgram_1011"] = True
-
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
@@ -802,7 +789,18 @@ async def media_stream(ws: WebSocket):
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
             return
+            
+        async def deepgram_error_watchdog(e):
+            err = str(e)
+            print(f"🔻 Deepgram SEND error: {err}")
 
+            if "1011" in err:
+                print("🚨 Deepgram 1011 detected inside WebSocket!")
+                sid = call_sid_holder.get("sid")
+                if sid:
+                    session_memory.setdefault(sid, {})
+                    session_memory[sid]["deepgram_1011"] = True
+                    
         async def deepgram_close_watchdog():
             while True:
                 await asyncio.sleep(0.02)
@@ -1062,38 +1060,27 @@ async def media_stream(ws: WebSocket):
                     )
 
                     call_sid_holder["sid"] = sid
-
                     session_memory.setdefault(sid, {})
-                    session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
-
+                    session_memory[sid]["close_requested"] = False
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
                 elif event == "media":
+                    # -------------------------------
+                    # SEND FRAMES TO DEEPGRAM
+                    # -------------------------------
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
-                        #dg_connection.send(payload)
+
+                        # THIS is where 1011 happens
+                        dg_connection.send(payload)
+
                     except Exception as e:
-                        print(f"⚠️ Error sending to Deepgram: {e}")
+                        # THIS catches DG 1011 reliably
+                        await deepgram_error_watchdog(e)
 
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
 
         await sender()
-
-    except Exception as e:
-        print(f"⛔ Deepgram error: {e}")
-
-    finally:
-        if dg_connection:
-            try:
-                dg_connection.finish()
-            except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
-        try:
-            await ws.close()
-        except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
-        print("✅ Connection closed")
-      
