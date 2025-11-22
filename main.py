@@ -771,323 +771,306 @@ async def media_stream(ws: WebSocket):
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
-    print("⚙️ Connecting to Deepgram live transcription...")
-
+    
     try:
-        live_client = deepgram.listen.live
+        print("⚙️ Connecting to Deepgram live transcription...")
 
-        deepgram_options = {
-            "punctuate": True,
-            "interim_results": True,
-            "endpointing": 2000  # 🟢 Wait 2000ms of silence before finalizing
-            }
-            
-        dg_connection = await asyncio.to_thread(live_client.v, "1")
-        
-    except Exception as e:
-        print(f"⛔ Failed to create Deepgram connection: {e}")
-        await ws.close()
-        return
-
-    async def deepgram_close_watchdog():
-        while True:
-            await asyncio.sleep(0.02)
-            sid = call_sid_holder.get("sid")
-            if not sid:
-                continue
-
-            if session_memory.get(sid, {}).get("close_requested"):
-                print(f"🛑 Closing Deepgram for {sid}")
-                try:
-                    dg_connection.finish()
-                except Exception as e:
-                    print(f"⚠️ Error closing Deepgram for {sid}: {e}")
-
-                print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
-                await ws.close()
-                return      # <-- THIS ENDS /media, allows next turn
-                    
-    loop.create_task(deepgram_close_watchdog())
-        
-    def on_transcript(*args, **kwargs):
         try:
-            print("📥 RAW transcript event:")
-            result = kwargs.get("result") or (args[0] if args else None)
-            metadata = kwargs.get("metadata")
+            live_client = deepgram.listen.live
 
-            if result is None:
-                print("⚠️ No result received.")
-                return
+            deepgram_options = {
+                "punctuate": True,
+                "interim_results": True,
+                "endpointing": 2000  # 🟢 Wait 2000ms of silence before finalizing
+                }
+            
+            dg_connection = await asyncio.to_thread(live_client.v, "1")
+        except Exception as e:
+            print(f"⛔ Failed to create Deepgram connection: {e}")
+            await ws.close()
+            return
 
-            print("📂 Type of result:", type(result))
-
-            if hasattr(result, "to_dict"):
-                payload = result.to_dict()
-                print(json.dumps(payload, indent=2))
-
+        async def deepgram_close_watchdog():
+            while True:
+                await asyncio.sleep(0.02)
                 sid = call_sid_holder.get("sid")
-                now = time.time()
-                speech_final = payload.get("speech_final", False)
+                if not sid:
+                    continue
 
-                try:
-                    alt = payload["channel"]["alternatives"][0]
-                    sentence = alt.get("transcript", "")
-                    confidence = alt.get("confidence", 0.0)
-                    is_final = payload["is_final"] if "is_final" in payload else False
+                if session_memory.get(sid, {}).get("close_requested"):
+                    print(f"🛑 Closing Deepgram for {sid}")
+                    try:
+                        dg_connection.finish()
+                    except Exception as e:
+                        print(f"⚠️ Error closing Deepgram for {sid}: {e}")
+
+                    print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
+                    await ws.close()
+                    return      # <-- THIS ENDS /media, allows next turn
+                    
+        loop.create_task(deepgram_close_watchdog())
+        
+        def on_transcript(*args, **kwargs):
+            try:
+                print("📥 RAW transcript event:")
+                result = kwargs.get("result") or (args[0] if args else None)
+                metadata = kwargs.get("metadata")
+
+                if result is None:
+                    print("⚠️ No result received.")
+                    return
+
+                print("📂 Type of result:", type(result))
+
+                if hasattr(result, "to_dict"):
+                    payload = result.to_dict()
+                    print(json.dumps(payload, indent=2))
+
+                    sid = call_sid_holder.get("sid")
+                    now = time.time()
+                    speech_final = payload.get("speech_final", False)
+
+                    try:
+                        alt = payload["channel"]["alternatives"][0]
+                        sentence = alt.get("transcript", "")
+                        confidence = alt.get("confidence", 0.0)
+                        is_final = payload["is_final"] if "is_final" in payload else False
                         
-                    if is_final and sentence.strip() and confidence >= 0.6:
-                        print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
+                        if is_final and sentence.strip() and confidence >= 0.6:
+                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
 
-                        last_input_time["ts"] = time.time()
-                        last_transcript["text"] = sentence
-                        last_transcript["confidence"] = confidence
-                        last_transcript["is_final"] = True
+                            last_input_time["ts"] = time.time()
+                            last_transcript["text"] = sentence
+                            last_transcript["confidence"] = confidence
+                            last_transcript["is_final"] = True
 
-                        final_transcripts.append(sentence)
+                            final_transcripts.append(sentence)
 
-                        if speech_final:
-                            sid = call_sid_holder.get("sid")
-                            session_memory.setdefault(sid, {})
-                            session_memory[sid]["close_requested"] = True
-                            print(f"🛑 Requested Deepgram close for {sid}")
-                            print("🧠 speech_final received — concatenating full transcript")
-                            full_transcript = " ".join(final_transcripts)
-                            log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
-
-                            # STOP immediately if we already processed a final transcript this turn
-                            if session_memory[sid].get("user_response_processing"):
-                                # ignore all future speech_final and final transcripts
-                                print(f"🚫 Ignoring transcript — already processing user response for {sid}")
-                                return
-
-                            if not full_transcript:
-                                log(f"⚠️ Skipping save — full_transcript is empty")
-                                return  # Exit early, skipping the save logic below
-
-                            if call_sid_holder["sid"]:
-                                sid = call_sid_holder["sid"]
+                            if speech_final:
+                                sid = call_sid_holder.get("sid")
                                 session_memory.setdefault(sid, {})
+                                session_memory[sid]["close_requested"] = True
+                                print(f"🛑 Requested Deepgram close for {sid}")
+                                print("🧠 speech_final received — concatenating full transcript")
+                                full_transcript = " ".join(final_transcripts)
+                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
-                                # 🧠 Detect overwrite — compare old vs new transcript
-                                prev_transcript = session_memory.get(sid, {}).get("user_transcript")
-                                new_transcript = full_transcript.strip()
+                                # STOP immediately if we already processed a final transcript this turn
+                                if session_memory[sid].get("user_response_processing"):
+                                    # ignore all future speech_final and final transcripts
+                                    print(f"🚫 Ignoring transcript — already processing user response for {sid}")
+                                    return
 
-                                if prev_transcript != new_transcript:
-                                    if not new_transcript:
-                                        print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
-                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                        print(f"     ✏️ New:      {repr(new_transcript)}")
-                                    else:
-                                        print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
-                                        print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                        print(f"     ✏️ New:      {repr(new_transcript)}")
+                                if not full_transcript:
+                                    log(f"⚠️ Skipping save — full_transcript is empty")
+                                    return  # Exit early, skipping the save logic below
+
+                                if call_sid_holder["sid"]:
+                                    sid = call_sid_holder["sid"]
+                                    session_memory.setdefault(sid, {})
+
+                                    # 🧠 Detect overwrite — compare old vs new transcript
+                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
+                                    new_transcript = full_transcript.strip()
+
+                                    if prev_transcript != new_transcript:
+                                        if not new_transcript:
+                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
+                                        else:
+                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
+                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
+                                            print(f"     ✏️ New:      {repr(new_transcript)}")
                                     else:
                                         print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
 
-                                # ✅ Use full_transcript — it exists here
-                                transcript_to_write = full_transcript
-                                print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
+                                    # ✅ Use full_transcript — it exists here
+                                    transcript_to_write = full_transcript
+                                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
 
-                                gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
-                                if gpt_logged_at:
-                                    delay = time.time() - gpt_logged_at
-                                    if delay > 0:
-                                        print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
+                                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
+                                    if gpt_logged_at:
+                                        delay = time.time() - gpt_logged_at
+                                        if delay > 0:
+                                            print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
 
-                                block_start_time = session_memory.get(sid, {}).get("block_start_time")
-                                print(f"🧠 Retrieved block_start_time: {block_start_time}")
+                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
+                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
-                                if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
-                                    session_memory[sid]["ai_is_speaking"] = False
-                                    log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
+                                    if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
+                                        session_memory[sid]["ai_is_speaking"] = False
+                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                # ✅ Main save gate
-                                if (
-                                    session_memory[sid].get("ai_is_speaking") is False and
-                                    session_memory[sid].get("user_response_processing") is False
-                                    ):
-                                    # ✅ Proceed with save
-                                    session_memory[sid]["user_transcript"] = full_transcript
-                                    session_memory[sid]["ready"] = True
-                                    session_memory[sid]["transcript_version"] = time.time()
+                                    # ✅ Main save gate
+                                    if (
+                                        session_memory[sid].get("ai_is_speaking") is False and
+                                        session_memory[sid].get("user_response_processing") is False
+                                        ):
+                                        # ✅ Proceed with save
+                                        session_memory[sid]["user_transcript"] = full_transcript
+                                        session_memory[sid]["ready"] = True
+                                        session_memory[sid]["transcript_version"] = time.time()
 
-                                    log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
+                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
 
-                                    save_transcript(sid, user_transcript=full_transcript)
+                                        save_transcript(sid, user_transcript=full_transcript)
 
-                                    logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                    session_memory[sid]['user_response_processing'] = True
+                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+                                        session_memory[sid]['user_response_processing'] = True
 
-                                    # ✅ Clear after successful save
-                                    final_transcripts.clear()
-                                    last_transcript["text"] = ""
-                                    last_transcript["confidence"] = 0.0
-                                    last_transcript["is_final"] = False
+                                        # ✅ Clear after successful save
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
-                                else:
-                                    log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                    else:
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
 
-                                    # 🧹 Clear junk to avoid stale input
-                                    final_transcripts.clear()
-                                    last_transcript["text"] = ""
-                                    last_transcript["confidence"] = 0.0
-                                    last_transcript["is_final"] = False
+                                        # 🧹 Clear junk to avoid stale input
+                                        final_transcripts.clear()
+                                        last_transcript["text"] = ""
+                                        last_transcript["confidence"] = 0.0
+                                        last_transcript["is_final"] = False
 
-                    elif is_final:
-                        print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
+                        elif is_final:
+                            print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
-                except KeyError as e:
-                    print(f"⚠️ Missing expected key in payload: {e}")
-                except Exception as inner_e:
-                    print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-        except Exception as e:  # ← This closes the OUTER try
-            print(f"⚠️ Error handling transcript: {e}")
+                    except KeyError as e:
+                        print(f"⚠️ Missing expected key in payload: {e}")
+                    except Exception as inner_e:
+                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
+            except Exception as e:  # ← This closes the OUTER try
+                print(f"⚠️ Error handling transcript: {e}")
                 
-    dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
-    dg_connection.on(LiveTranscriptionEvents.Error, on_dg_error)
+        options = LiveOptions(
+            model="nova-3",
+            language="en-US",
+            encoding="mulaw",
+            sample_rate=8000,
+            punctuate=True,
+        )
+        print("✏️ LiveOptions being sent:", options.__dict__)
+        dg_connection.start(options)
+        print("✅ Deepgram connection started")
 
-    dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
+        # -------------------------------------------------
+        # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
+        # -------------------------------------------------
+        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
 
-    options = LiveOptions(
-        model="nova-3",
-        language="en-US",
-        encoding="mulaw",
-        sample_rate=8000,
-        punctuate=True,
-    )
-    print("✏️ LiveOptions being sent:", options.__dict__)
-    dg_connection.start(options)
-    print("✅ Deepgram connection started")
+        dg_connection.last_media_time = time.time()  # initialize timestamp
 
-    # 🚨 TESTING ONLY: trigger 1011 error intentionally
-    print("🧪 Test mode: Not sending audio to Deepgram, waiting for timeout...")
-    await asyncio.sleep(15)  # This will trigger a 1011 every time
+        async def deepgram_keepalive():
+            while True:
+                await asyncio.sleep(0.02)  # run every 20ms
 
-    return  # End early to skip rest of logic during this test
-
-    # -------------------------------------------------
-    # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
-    # -------------------------------------------------
-    #SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
-
-    #dg_connection.last_media_time = time.time()  # initialize timestamp
-
-    #async def deepgram_keepalive():
-        #while True:
-            #await asyncio.sleep(0.02)  # run every 20ms
-
-            #try:
-                # If Twilio has been silent for 50ms → send silence
-                #if time.time() - dg_connection.last_media_time > 0.05:
-                    #dg_connection.send(SILENCE_FRAME)
-                    #print("📡 Sent 20ms SILENCE frame to Deepgram")
-
-            #except Exception as e:
-                #print(f"⚠️ KeepAlive error sending silence: {e}")
-                #break
-                    
-    #loop.create_task(deepgram_keepalive())
-
-    #async def deepgram_text_keepalive():
-        #while True:
-            #await asyncio.sleep(5)  # Send every 5 seconds
-
-            #try:
-                #dg_connection.send(json.dumps({"type": "KeepAlive"}))
-                #print(f"📨 Sent text KeepAlive at {time.time()}")
-
-            #except Exception as e:
-                #print(f"❌ Error sending text KeepAlive: {e}")
-                #break  # Stop the loop if the connection is closed or broken
-
-    #loop.create_task(deepgram_text_keepalive())
-
-    async def monitor_user_done():
-        while not finished["done"]:
-            await asyncio.sleep(0.5)
-            elapsed = time.time() - last_input_time["ts"]
-        
-            if (
-                elapsed > 2.0 and
-                last_transcript["confidence"] >= 0.5 and
-                last_transcript.get("is_final", False)
-            ):
-                print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
-                finished["done"] = True
-                    
-                print("⏳ Waiting for POST to handle GPT + TTS...")
-                for _ in range(40):  # up to 4 seconds
-                    audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
-                    if audio_path and os.path.exists(audio_path):
-                        print(f"✅ POST-generated audio is ready: {audio_path}")
-                        break
-                    await asyncio.sleep(0.1)
-                else:
-                    print("❌ Timed out waiting for POST to generate GPT audio.")
-                        
-    loop.create_task(monitor_user_done())
-        
-    async def sender():
-        while True:
-            try:
-                raw = await ws.receive_text()
-            except WebSocketDisconnect:
-                print("✖️ Twilio WebSocket disconnected")
-                break
-            except Exception as e:
-                print(f"⚠️ Unexpected error receiving message: {e}")
-                break
-
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON decode error: {e}")
-                continue
-
-            event = msg.get("event")
-
-            if event == "start":
-                sid = (
-                    msg["start"].get("callSid")
-                    or msg["start"].get("CallSid")
-                    or msg["start"].get("callerSid")
-                    or msg["start"].get("CallerSid")
-                )
-
-                call_sid_holder["sid"] = sid
-
-                session_memory.setdefault(sid, {})
-                session_memory[sid]["close_requested"] = False
-
-                print(f"📞 Stream started for {sid}, close_requested=False")
-
-            elif event == "media":
                 try:
-                    payload = base64.b64decode(msg["media"]["payload"])
-                    dg_connection.last_media_time = time.time()
-                    dg_connection.send(payload)
+                    # If Twilio has been silent for 50ms → send silence
+                    if time.time() - dg_connection.last_media_time > 0.05:
+                        dg_connection.send(SILENCE_FRAME)
+                        #print("📡 Sent 20ms SILENCE frame to Deepgram")
+
                 except Exception as e:
-                    print(f"⚠️ Error sending to Deepgram: {e}")
+                    print(f"⚠️ KeepAlive error sending silence: {e}")
+                    break
+                    
+        loop.create_task(deepgram_keepalive())
 
-            elif event == "stop":
-                print("⏹ Stream stopped by Twilio")
-                break
+        async def deepgram_text_keepalive():
+            while True:
+                await asyncio.sleep(5)  # Send every 5 seconds
 
-    # ---- The receiving / error-watch block ----
+                try:
+                    dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                    #print(f"📨 Sent text KeepAlive at {time.time()}")
 
-    try:
+                except Exception as e:
+                    print(f"❌ Error sending text KeepAlive: {e}")
+                    break  # Stop the loop if the connection is closed or broken
+
+        loop.create_task(deepgram_text_keepalive())
+
+        async def monitor_user_done():
+            while not finished["done"]:
+                await asyncio.sleep(0.5)
+                elapsed = time.time() - last_input_time["ts"]
+        
+                if (
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.5 and
+                    last_transcript.get("is_final", False)
+                ):
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    finished["done"] = True
+                    
+                    print("⏳ Waiting for POST to handle GPT + TTS...")
+                    for _ in range(40):  # up to 4 seconds
+                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
+                        if audio_path and os.path.exists(audio_path):
+                            print(f"✅ POST-generated audio is ready: {audio_path}")
+                            break
+                        await asyncio.sleep(0.1)
+                    else:
+                        print("❌ Timed out waiting for POST to generate GPT audio.")
+                        
+        loop.create_task(monitor_user_done())
+        
+        async def sender():
+            while True:
+                try:
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    print("✖️ Twilio WebSocket disconnected")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Unexpected error receiving message: {e}")
+                    break
+
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decode error: {e}")
+                    continue
+
+                event = msg.get("event")
+
+                if event == "start":
+                    sid = (
+                        msg["start"].get("callSid")
+                        or msg["start"].get("CallSid")
+                        or msg["start"].get("callerSid")
+                        or msg["start"].get("CallerSid")
+                    )
+
+                    call_sid_holder["sid"] = sid
+
+                    session_memory.setdefault(sid, {})
+                    session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
+
+                    print(f"📞 Stream started for {sid}, close_requested=False")
+
+                elif event == "media":
+                    try:
+                        payload = base64.b64decode(msg["media"]["payload"])
+                        dg_connection.last_media_time = time.time()
+                        dg_connection.send(payload)
+                    except Exception as e:
+                        print(f"⚠️ Error sending to Deepgram: {e}")
+
+                elif event == "stop":
+                    print("⏹ Stream stopped by Twilio")
+                    break
+
         await sender()
-    except Exception as e:
-        text = str(e)
-        print(f"⛔ Deepgram error: {text!r}")
 
-        if "code 1011" in text or "net0001" in text or "net 0.0.0.1" in text:
-            sid = call_sid_holder.get("sid")
-            print(f"⚠️ DETECTED Deepgram 10.11 timeout (net 0.0.0.1) for SID={sid}")
-            if sid:
-                session_memory.setdefault(sid, {})
-                session_memory[sid]["deepgram_1011"] = True
+    except Exception as e:
+        print(f"⛔ Deepgram error: {e}")
 
     finally:
         if dg_connection:
@@ -1095,10 +1078,9 @@ async def media_stream(ws: WebSocket):
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
-
         try:
             await ws.close()
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
-
         print("✅ Connection closed")
+      
