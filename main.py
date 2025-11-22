@@ -945,7 +945,32 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        
+        # ---------------------------------------------------
+        # Deepgram ERROR WATCHER — detect 10.11 net 0.0.0.1
+        # ---------------------------------------------------
+        def on_dg_error(err):
+            print(f"🔴 Deepgram error event: {err}")
+
+            try:
+                # Deepgram errors typically come in this structure:
+                # {'error': {'code': 1011, 'message': 'net 0.0.0.1'}}
+                error_obj = err.get("error") if isinstance(err, dict) else None
+
+                if error_obj:
+                    code = error_obj.get("code")
+                    message = error_obj.get("message")
+
+                    if code == 1011 and message == "net 0.0.0.1":
+                        sid = call_sid_holder.get("sid")
+                        print(f"⚠️ DETECTED Deepgram 10.11 net 0.0.0.1 for {sid}")
+
+            except Exception as e:
+                print(f"⚠️ Could not parse Deepgram error payload: {e}")
+
+        # Attach the listener
+        dg_connection.on(LiveTranscriptionEvents.Error, on_dg_error)
+
         dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
         options = LiveOptions(
@@ -959,42 +984,54 @@ async def media_stream(ws: WebSocket):
         dg_connection.start(options)
         print("✅ Deepgram connection started")
 
+        async def websocket_endpoint(websocket: WebSocket):
+            await websocket.accept()
+
+            # Connect to Deepgram
+            deepgram_connection = await connect_to_deepgram()
+
+            # 🚨 TESTING ONLY: trigger 1011 error intentionally
+            print("🧪 Test mode: Not sending audio to Deepgram, waiting for timeout...")
+            await asyncio.sleep(15)  # This will trigger a 1011 every time
+
+            return  # End early to skip rest of logic during this test
+
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
         # -------------------------------------------------
-        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
+        #SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
 
-        dg_connection.last_media_time = time.time()  # initialize timestamp
+        #dg_connection.last_media_time = time.time()  # initialize timestamp
 
-        async def deepgram_keepalive():
-            while True:
-                await asyncio.sleep(0.02)  # run every 20ms
+        #async def deepgram_keepalive():
+            #while True:
+                #await asyncio.sleep(0.02)  # run every 20ms
 
-                try:
+                #try:
                     # If Twilio has been silent for 50ms → send silence
-                    if time.time() - dg_connection.last_media_time > 0.05:
-                        dg_connection.send(SILENCE_FRAME)
+                    #if time.time() - dg_connection.last_media_time > 0.05:
+                        #dg_connection.send(SILENCE_FRAME)
                         #print("📡 Sent 20ms SILENCE frame to Deepgram")
 
-                except Exception as e:
-                    print(f"⚠️ KeepAlive error sending silence: {e}")
-                    break
+                #except Exception as e:
+                    #print(f"⚠️ KeepAlive error sending silence: {e}")
+                    #break
                     
-        loop.create_task(deepgram_keepalive())
+        #loop.create_task(deepgram_keepalive())
 
-        async def deepgram_text_keepalive():
-            while True:
-                await asyncio.sleep(5)  # Send every 5 seconds
+        #async def deepgram_text_keepalive():
+            #while True:
+                #await asyncio.sleep(5)  # Send every 5 seconds
 
-                try:
-                    dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                #try:
+                    #dg_connection.send(json.dumps({"type": "KeepAlive"}))
                     #print(f"📨 Sent text KeepAlive at {time.time()}")
 
-                except Exception as e:
-                    print(f"❌ Error sending text KeepAlive: {e}")
-                    break  # Stop the loop if the connection is closed or broken
+                #except Exception as e:
+                    #print(f"❌ Error sending text KeepAlive: {e}")
+                    #break  # Stop the loop if the connection is closed or broken
 
-        loop.create_task(deepgram_text_keepalive())
+        #loop.create_task(deepgram_text_keepalive())
 
         async def monitor_user_done():
             while not finished["done"]:
