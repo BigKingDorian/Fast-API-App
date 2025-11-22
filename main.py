@@ -90,6 +90,19 @@ session_memory = {}
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+def deepgram_error_watchdog(error):
+    err_text = str(error) if error else "UNKNOWN"
+
+    if isinstance(error, dict):
+        err_text = json.dumps(error)
+
+    if "1011" in err_text:
+        print("🚨 WARNING: Deepgram 1011 error detected! (Internal DG processing error)")
+        # Optional: set diagnostic flag
+        session_memory.setdefault("global", {})["deepgram_1011"] = True
+    else:
+        print(f"🔴 Deepgram error: {err_text}")
+
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
@@ -945,7 +958,10 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(
+            LiveTranscriptionEvents.Error,
+            lambda err: deepgram_error_watchdog(err)
+        )
         dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
         options = LiveOptions(
