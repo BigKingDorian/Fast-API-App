@@ -1075,7 +1075,7 @@ async def media_stream(ws: WebSocket):
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
-                        dg_connection.send(payload)
+                        #dg_connection.send(payload)
                     except Exception as e:
                         print(f"⚠️ Error sending to Deepgram: {e}")
 
