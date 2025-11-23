@@ -957,6 +957,8 @@ async def media_stream(ws: WebSocket):
             )
         )
 
+        print("👀 ATTACHED DG Close handler:", dg_connection._event_handlers)
+
         options = LiveOptions(
             model="nova-3",
             language="en-US",
