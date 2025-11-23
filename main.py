@@ -1090,14 +1090,29 @@ async def media_stream(ws: WebSocket):
         print(f"⛔ Deepgram error: {e}")
 
     finally:
+        sid = call_sid_holder.get("sid")
+        intentional = False
+
+        if sid:
+            intentional = session_memory.get(sid, {}).get("dg_closed_on_purpose", False)
+
+        # 🔥 PRINT EXPLICIT REASON FOR CLOSE
+        if intentional:
+            print("🟢 Deepgram connection closed intentionally (expected close).")
+        else:
+            print("🚨 Deepgram connection closed UNEXPECTEDLY!")
+
+        # 🔚 Always try to close Deepgram cleanly
         if dg_connection:
             try:
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
+
+        # 🔚 Close WebSocket
         try:
             await ws.close()
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
-        print("✅ Connection closed")
-      
+
+        print("✅ WebSocket + Deepgram cleanup complete")
