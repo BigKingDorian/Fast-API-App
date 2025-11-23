@@ -799,19 +799,29 @@ async def media_stream(ws: WebSocket):
 
                 if session_memory.get(sid, {}).get("close_requested"):
                     print(f"🛑 Closing Deepgram for {sid}")
+
+                    session_memory[sid]["dg_closed_on_purpose"] = True
+                    print("🟢 dg_closed_on_purpose = True (intentional close)")
+
                     try:
                         dg_connection.finish()
-                        print("🟢 dg_closed_on_purpose = True (intentional close)")
+                        print("🔚 dg_connection.finish() called")
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
-  
-                    session_memory[sid]["dg_closed_on_purpose"] = False
-                    print("⛔ dg_closed_on_purpose = False (window closed)")
-                    await ws.close()
-                    return      # <-- THIS ENDS /media, allows next turn
-                    
-        loop.create_task(deepgram_close_watchdog())
-        
+
+                    return
+
+        async def handle_dg_close():
+            sid = call_sid_holder.get("sid")
+            intentional = session_memory.get(sid, {}).get("dg_closed_on_purpose")
+
+            if intentional:
+                print("🟢 Deepgram closed intentionally")
+            else:
+                print("🚨 UNEXPECTED Deepgram close detected!")
+
+            await ws.close()
+            
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -948,16 +958,6 @@ async def media_stream(ws: WebSocket):
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda: print(
-                "🚨 UNEXPECTED Deepgram close! (dg_closed_on_purpose = False)"
-                if not session_memory.get(call_sid_holder.get("sid"), {}).get("dg_closed_on_purpose")
-                else "🟢 Deepgram closed intentionally"
-            )
-        )
-
-        print("👀 ATTACHED DG Close handler:", dg_connection._event_handlers)
 
         options = LiveOptions(
             model="nova-3",
@@ -969,6 +969,12 @@ async def media_stream(ws: WebSocket):
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
+
+        # 👉 INSERT THIS EXACTLY HERE
+        dg_connection.on(
+            LiveTranscriptionEvents.Close,
+            lambda: asyncio.create_task(handle_dg_close())
+        )
 
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
