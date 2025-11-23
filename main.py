@@ -958,6 +958,10 @@ async def media_stream(ws: WebSocket):
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(
+            LiveTranscriptionEvents.Close,
+            lambda: asyncio.create_task(handle_dg_close())
+        )
 
         options = LiveOptions(
             model="nova-3",
@@ -969,12 +973,6 @@ async def media_stream(ws: WebSocket):
         print("✏️ LiveOptions being sent:", options.__dict__)
         dg_connection.start(options)
         print("✅ Deepgram connection started")
-
-        # 👉 INSERT THIS EXACTLY HERE
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda: asyncio.create_task(handle_dg_close())
-        )
 
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
