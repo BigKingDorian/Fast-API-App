@@ -807,9 +807,8 @@ async def media_stream(ws: WebSocket):
   
                     session_memory[sid]["dg_closed_on_purpose"] = False
                     print("⛔ dg_closed_on_purpose = False (window closed)")
-                    
-                await ws.close()
-                return      # <-- THIS ENDS /media, allows next turn
+                    await ws.close()
+                    return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
         
