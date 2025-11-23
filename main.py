@@ -799,30 +799,19 @@ async def media_stream(ws: WebSocket):
 
                 if session_memory.get(sid, {}).get("close_requested"):
                     print(f"🛑 Closing Deepgram for {sid}")
-
                     try:
-                        # 1. Mark this as an intentional close
-                        session_memory[sid]["dg_closed_on_purpose"] = True
-                        print("🟢 dg_closed_on_purpose = True (intentional close)")
-
-                        # 2. Actually close Deepgram
                         dg_connection.finish()
-
-                        # 3. Yield ONE event loop cycle so the Deepgram
-                        #    `.on(Close)` event can fire while flag == True
-                        await asyncio.sleep(0)
-
-                        # 4. Reset flag back to False immediately after
-                        session_memory[sid]["dg_closed_on_purpose"] = False
-                        print("⛔ dg_closed_on_purpose = False (window closed)")
-
+                        print("🟢 dg_closed_on_purpose = True (intentional close)")
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
-
-                    # 5. Now close Twilio WebSocket
+  
+                    session_memory[sid]["dg_closed_on_purpose"] = False
+                    print("⛔ dg_closed_on_purpose = False (window closed)")
                     await ws.close()
-                    return   # <-- end /media WebSocket handler
-
+                    return      # <-- THIS ENDS /media, allows next turn
+                    
+        loop.create_task(deepgram_close_watchdog())
+        
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -959,14 +948,7 @@ async def media_stream(ws: WebSocket):
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda: print(
-                "🚨 UNEXPECTED Deepgram close detected! (dg_closed_on_purpose = False)"
-                if not session_memory.get(call_sid_holder.get("sid"), {}).get("dg_closed_on_purpose")
-                else "🟢 Deepgram closed intentionally"
-            )
-        )
+        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
         options = LiveOptions(
             model="nova-3",
@@ -1072,7 +1054,7 @@ async def media_stream(ws: WebSocket):
 
                     session_memory.setdefault(sid, {})
                     session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
-                    
+
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
                 elif event == "media":
