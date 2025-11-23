@@ -755,6 +755,20 @@ async def greeting_rout(request: Request):
     vr.redirect("/4")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
+    # 🧵 Tap into the underlying Socket.IO client
+    dg_socket = deepgram.listen.socket
+
+    @dg_socket.on("disconnect")
+    async def deepgram_socket_disconnected():
+        print("🧨 Deepgram SOCKET.IO disconnected (LOW-LEVEL)")
+
+    @dg_socket.on("connect_error")
+    async def deepgram_socket_connect_error(err):
+        print(f"🚨 DG SOCKET connection error: {err}")
+
+    @dg_socket.on("error")
+    async def deepgram_socket_error(err):
+        print(f"🔥 DG SOCKET error: {err}")
 
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
@@ -772,20 +786,19 @@ async def media_stream(ws: WebSocket):
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
 
-    # 🧵 Tap into the underlying Socket.IO client
     dg_socket = deepgram.listen.socket
 
-    @dg_socket.on("disconnect")
-    async def deepgram_socket_disconnected():
+    # clear old handlers so you don't stack 1000 of them
+    dg_socket.handlers.clear()
+
+    def on_socket_disconnect(*args, **kwargs):
         print("🧨 Deepgram SOCKET.IO disconnected (LOW-LEVEL)")
 
-    @dg_socket.on("connect_error")
-    async def deepgram_socket_connect_error(err):
-        print(f"🚨 DG SOCKET connection error: {err}")
+    def on_socket_error(err):
+        print(f"🔥 Deepgram socket error: {err}")
 
-    @dg_socket.on("error")
-    async def deepgram_socket_error(err):
-        print(f"🔥 DG SOCKET error: {err}")
+    dg_socket.on("disconnect", on_socket_disconnect)
+    dg_socket.on("error", on_socket_error)
 
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
