@@ -948,7 +948,14 @@ async def media_stream(ws: WebSocket):
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
+        dg_connection.on(
+            LiveTranscriptionEvents.Close,
+            lambda: print(
+                "🚨 UNEXPECTED Deepgram close! (dg_closed_on_purpose = False)"
+                if not session_memory.get(call_sid_holder.get("sid"), {}).get("dg_closed_on_purpose")
+                else "🟢 Deepgram closed intentionally"
+            )
+        )
 
         options = LiveOptions(
             model="nova-3",
