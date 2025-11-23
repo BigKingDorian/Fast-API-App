@@ -958,10 +958,12 @@ async def media_stream(ws: WebSocket):
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
         dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda: asyncio.create_task(handle_dg_close())
-        )
+        
+        def deepgram_closed(close_info):
+            print("🟢 Deepgram WebSocket CLOSED:", close_info)
+            asyncio.create_task(handle_dg_close())
+
+        dg_connection.on(LiveTranscriptionEvents.Close, deepgram_closed)
 
         options = LiveOptions(
             model="nova-3",
