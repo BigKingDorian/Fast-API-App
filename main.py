@@ -789,18 +789,7 @@ async def media_stream(ws: WebSocket):
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
             return
-            
-        async def deepgram_error_watchdog(e):
-            err = str(e)
-            print(f"🔻 Deepgram SEND error: {err}")
 
-            if "1011" in err:
-                print("🚨 Deepgram 1011 detected inside WebSocket!")
-                sid = call_sid_holder.get("sid")
-                if sid:
-                    session_memory.setdefault(sid, {})
-                    session_memory[sid]["deepgram_1011"] = True
-                    
         async def deepgram_close_watchdog():
             while True:
                 await asyncio.sleep(0.02)
@@ -815,7 +804,8 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
-                    print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
+                    session_memory[sid]["dg_closed_on_purpose"] = True 
+                    print("🟢 Deepgram closed — dg_closed_on_purpose = True")
                     await ws.close()
                     return      # <-- THIS ENDS /media, allows next turn
                     
@@ -956,9 +946,9 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error handling transcript: {e}")
                 
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: deepgram_error_watchdog(err))
-        dg_connection.on(LiveTranscriptionEvents.Close, lambda evt=None: deepgram_close_watchdog(evt))
-        
+        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
+
         options = LiveOptions(
             model="nova-3",
             language="en-US",
@@ -973,39 +963,39 @@ async def media_stream(ws: WebSocket):
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
         # -------------------------------------------------
-        #SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
+        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
 
-        #dg_connection.last_media_time = time.time()  # initialize timestamp
+        dg_connection.last_media_time = time.time()  # initialize timestamp
 
-        #async def deepgram_keepalive():
-            #while True:
-                #await asyncio.sleep(0.02)  # run every 20ms
+        async def deepgram_keepalive():
+            while True:
+                await asyncio.sleep(0.02)  # run every 20ms
 
-                #try:
+                try:
                     # If Twilio has been silent for 50ms → send silence
-                    #if time.time() - dg_connection.last_media_time > 0.05:
-                        #dg_connection.send(SILENCE_FRAME)
+                    if time.time() - dg_connection.last_media_time > 0.05:
+                        dg_connection.send(SILENCE_FRAME)
                         #print("📡 Sent 20ms SILENCE frame to Deepgram")
 
-                #except Exception as e:
-                    #print(f"⚠️ KeepAlive error sending silence: {e}")
-                    #break
+                except Exception as e:
+                    print(f"⚠️ KeepAlive error sending silence: {e}")
+                    break
                     
-        #loop.create_task(deepgram_keepalive())
+        loop.create_task(deepgram_keepalive())
 
-        #async def deepgram_text_keepalive():
-            #while True:
-                #await asyncio.sleep(5)  # Send every 5 seconds
+        async def deepgram_text_keepalive():
+            while True:
+                await asyncio.sleep(5)  # Send every 5 seconds
 
-                #try:
-                    #dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                try:
+                    dg_connection.send(json.dumps({"type": "KeepAlive"}))
                     #print(f"📨 Sent text KeepAlive at {time.time()}")
 
-                #except Exception as e:
-                    #print(f"❌ Error sending text KeepAlive: {e}")
-                    #break  # Stop the loop if the connection is closed or broken
+                except Exception as e:
+                    print(f"❌ Error sending text KeepAlive: {e}")
+                    break  # Stop the loop if the connection is closed or broken
 
-        #loop.create_task(deepgram_text_keepalive())
+        loop.create_task(deepgram_text_keepalive())
 
         async def monitor_user_done():
             while not finished["done"]:
@@ -1060,27 +1050,39 @@ async def media_stream(ws: WebSocket):
                     )
 
                     call_sid_holder["sid"] = sid
+
                     session_memory.setdefault(sid, {})
-                    session_memory[sid]["close_requested"] = False
+                    session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
+                    session_memory[sid]["dg_closed_on_purpose"] = False
+                    print("⛔ Deepgram Not Closed — dg_closed_on_purpose = False")
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
                 elif event == "media":
-                    # -------------------------------
-                    # SEND FRAMES TO DEEPGRAM
-                    # -------------------------------
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
-
-                        # THIS is where 1011 happens
                         dg_connection.send(payload)
-
                     except Exception as e:
-                        # THIS catches DG 1011 reliably
-                        await deepgram_error_watchdog(e)
+                        print(f"⚠️ Error sending to Deepgram: {e}")
 
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
 
         await sender()
+
+    except Exception as e:
+        print(f"⛔ Deepgram error: {e}")
+
+    finally:
+        if dg_connection:
+            try:
+                dg_connection.finish()
+            except Exception as e:
+                print(f"⚠️ Error closing Deepgram connection: {e}")
+        try:
+            await ws.close()
+        except Exception as e:
+            print(f"⚠️ Error closing WebSocket: {e}")
+        print("✅ Connection closed")
+      
