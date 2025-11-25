@@ -809,6 +809,14 @@ async def media_stream(ws: WebSocket):
                     return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
+
+        async def deepgram_is_final_watchdog():
+            while True:
+                await asyncio.sleep(0.02)
+                if is_final:
+                    print(f"✅ Is Final received in watchdog: \"{sentence}\" (confidence: {confidence})")  
+                    
+        loop.create_task(deepgram_is_final_watchdog())
         
         def on_transcript(*args, **kwargs):
             try:
@@ -835,9 +843,6 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
-
-                        if is_final:
-                            print(f"✅ Is Final received: \"{sentence}\" (confidence: {confidence})")
                         
                         if is_final and sentence.strip() and confidence >= 0.6:
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
