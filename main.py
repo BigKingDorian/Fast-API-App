@@ -835,6 +835,9 @@ async def media_stream(ws: WebSocket):
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
+
+                        if is_final:
+                            print(f"✅ Is Final received: \"{sentence}\" (confidence: {confidence})")
                         
                         if is_final and sentence.strip() and confidence >= 0.6:
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
