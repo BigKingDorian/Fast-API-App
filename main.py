@@ -820,12 +820,20 @@ async def media_stream(ws: WebSocket):
             while True:
                 await asyncio.sleep(0.02)
 
+                # If we got a new is_final, update the timestamp
                 if state["is_final"]:
-                    print(f"✅ Watchdog detected is_final: \"{state['sentence']}\" " 
+                    session_memory[sid]["last_is_final_time"] = time.time()
+                    print(f"✅ Watchdog detected is_final: \"{state['sentence']}\" "
                           f"(confidence: {state['confidence']})")
-                    
+
+                # Check how long it's been since the last is_final
+                last_time = session_memory.get(sid, {}).get("last_is_final_time")
+                if last_time and time.time() - last_time > 2.0:
+                    print(f"⚠️ No is_final received in 2 seconds for {sid}")
+                    # Flip a flag or trigger fallback here
+
         loop.create_task(deepgram_is_final_watchdog())
-        
+
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
