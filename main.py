@@ -824,19 +824,20 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                last_time = state.get("last_is_final_time")
+                last_time = session_memory.get(sid, {}).get("last_is_final_time")
                 if not last_time:
                     continue  # no is_final seen yet
 
                 elapsed = time.time() - last_time
-                # Optional debug:
+                # Debug:
                 # print(f"⏱️ {sid} time since last is_final: {elapsed:.3f}s")
 
-                if elapsed > 0.2:  # or 2.0s in the real version
+                if elapsed > 0.2:  # or 2.0s in real use
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
-                    # TODO: flip a flag / trigger reconnection / whatever
-                    # then maybe break or continue depending on how you want it to behave
+                    # TODO: flip a flag / trigger reconnection / etc.
 
+        loop.create_task(deepgram_is_final_watchdog())
+        
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
