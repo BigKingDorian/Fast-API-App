@@ -769,7 +769,7 @@ async def media_stream(ws: WebSocket):
     state = {
         "is_final": False,
         "sentence": "",
-        "confidence": 0.0
+        "confidence": 0.0,
         "last_is_final_time": None,  # 👈 add this
     }
 
