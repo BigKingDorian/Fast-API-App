@@ -829,7 +829,7 @@ async def media_stream(ws: WebSocket):
 
                 # Check how long it's been since the last is_final
                 last_time = session_memory.get(sid, {}).get("last_is_final_time")
-                if last_time and time.time() - last_time > 2.0:
+                if last_time and time.time() - last_time > 0.2:
                     print(f"⚠️ No is_final received in 2 seconds for {sid}")
                     # Flip a flag or trigger fallback here
 
