@@ -819,6 +819,9 @@ async def media_stream(ws: WebSocket):
         async def deepgram_is_final_watchdog():
             while True:
                 await asyncio.sleep(0.02)
+                sid = call_sid_holder.get("sid")
+                if not sid:
+                    continue
 
                 # If we got a new is_final, update the timestamp
                 if state["is_final"]:
