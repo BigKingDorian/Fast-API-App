@@ -770,6 +770,7 @@ async def media_stream(ws: WebSocket):
         "is_final": False,
         "sentence": "",
         "confidence": 0.0
+        "last_is_final_time": None,  # 👈 add this
     }
 
     final_transcripts = []
@@ -823,17 +824,18 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                # If we got a new is_final, update the timestamp
-                if state["is_final"]:
-                    session_memory[sid]["last_is_final_time"] = time.time()
+                last_time = state.get("last_is_final_time")
+                if not last_time:
+                    continue  # no is_final seen yet
 
-                # Check how long it's been since the last is_final
-                last_time = session_memory.get(sid, {}).get("last_is_final_time")
-                if last_time and time.time() - last_time > 0.2:
-                    print(f"⚠️ No is_final received in 2 seconds for {sid}")
-                    # Flip a flag or trigger fallback here
+                elapsed = time.time() - last_time
+                # Optional debug:
+                # print(f"⏱️ {sid} time since last is_final: {elapsed:.3f}s")
 
-        loop.create_task(deepgram_is_final_watchdog())
+                if elapsed > 0.2:  # or 2.0s in the real version
+                    print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
+                    # TODO: flip a flag / trigger reconnection / whatever
+                    # then maybe break or continue depending on how you want it to behave
 
         def on_transcript(*args, **kwargs):
             try:
@@ -867,6 +869,7 @@ async def media_stream(ws: WebSocket):
                         
                         if is_final and sentence.strip() and confidence >= 0.6:
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
+                            session_memory[sid]["last_is_final_time"] = time.time()
 
                             last_input_time["ts"] = time.time()
                             last_transcript["text"] = sentence
