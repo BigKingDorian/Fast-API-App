@@ -826,8 +826,6 @@ async def media_stream(ws: WebSocket):
                 # If we got a new is_final, update the timestamp
                 if state["is_final"]:
                     session_memory[sid]["last_is_final_time"] = time.time()
-                    print(f"✅ Watchdog detected is_final: \"{state['sentence']}\" "
-                          f"(confidence: {state['confidence']})")
 
                 # Check how long it's been since the last is_final
                 last_time = session_memory.get(sid, {}).get("last_is_final_time")
