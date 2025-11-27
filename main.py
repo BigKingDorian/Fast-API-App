@@ -834,6 +834,7 @@ async def media_stream(ws: WebSocket):
 
                 if elapsed > 2.1 and not session_memory[sid]["warned"]:
                     session_memory[sid]["warned"] = True
+                    print(f"🚩 Flag set: warned = True for session")
                     # handle timeout event
 
         loop.create_task(deepgram_is_final_watchdog())
@@ -1086,7 +1087,9 @@ async def media_stream(ws: WebSocket):
                     session_memory.setdefault(sid, {})
                     session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
 
+                    # Reset deepgram_is_final_watchdog
                     session_memory[sid]["is_final_warned"] = False
+                    print(f"🚩 Flag set: warned = False for session")
                     session_memory[sid]["last_is_final_time"] = None
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
