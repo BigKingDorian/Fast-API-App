@@ -818,24 +818,30 @@ async def media_stream(ws: WebSocket):
         loop.create_task(deepgram_close_watchdog())
 
         async def deepgram_is_final_watchdog():
-            session_memory[sid]["warned"] = False
-
             while True:
                 await asyncio.sleep(0.02)
+
                 sid = call_sid_holder.get("sid")
                 if not sid:
                     continue
 
-                last_time = session_memory.get(sid, {}).get("last_is_final_time")
+                # make sure session exists
+                session = session_memory.setdefault(sid, {})
+
+                # initialize warned once per session
+                if "warned" not in session:
+                    session["warned"] = False
+
+                last_time = session.get("last_is_final_time")
                 if not last_time:
                     continue  # no is_final seen yet
 
                 elapsed = time.time() - last_time
 
-                if elapsed > 2.1 and not session_memory[sid]["warned"]:
-                    session_memory[sid]["warned"] = True
-                    print(f"🚩 Flag set: warned = True for session")
-                    # handle timeout event
+                if elapsed > 2.1 and not session["warned"]:
+                    session["warned"] = True
+                    print(f"🚩 Flag set: warned = True for session {sid}")
+                    # handle timeout event here (later)
 
         loop.create_task(deepgram_is_final_watchdog())
         
