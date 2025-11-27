@@ -818,7 +818,7 @@ async def media_stream(ws: WebSocket):
         loop.create_task(deepgram_close_watchdog())
 
         async def deepgram_is_final_watchdog():
-            warned = False  # <- local flag for this /media session
+            session_memory[sid]["warned"] = False
 
             while True:
                 await asyncio.sleep(0.02)
@@ -832,13 +832,9 @@ async def media_stream(ws: WebSocket):
 
                 elapsed = time.time() - last_time
 
-                if elapsed > 2.0 and not warned:
-                    print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
-                    warned = True  # don't fire again until things "recover"
-
-                elif elapsed <= 2.0:
-                    # Deepgram is active again → reset the warning state
-                    warned = False
+                if elapsed > 2.1 and not session_memory[sid]["warned"]:
+                    session_memory[sid]["warned"] = True
+                    # handle timeout event
 
         loop.create_task(deepgram_is_final_watchdog())
         
@@ -1089,6 +1085,9 @@ async def media_stream(ws: WebSocket):
 
                     session_memory.setdefault(sid, {})
                     session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
+
+                    session_memory[sid]["is_final_warned"] = False
+                    session_memory[sid]["last_is_final_time"] = None
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
