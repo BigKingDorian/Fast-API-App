@@ -1003,39 +1003,39 @@ async def media_stream(ws: WebSocket):
         # -------------------------------------------------
         # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
         # -------------------------------------------------
-        #SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
+        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
 
-        #dg_connection.last_media_time = time.time()  # initialize timestamp
+        dg_connection.last_media_time = time.time()  # initialize timestamp
 
-        #async def deepgram_keepalive():
-            #while True:
-                #await asyncio.sleep(0.02)  # run every 20ms
+        async def deepgram_keepalive():
+            while True:
+                await asyncio.sleep(0.02)  # run every 20ms
 
-                #try:
+                try:
                     # If Twilio has been silent for 50ms → send silence
-                    #if time.time() - dg_connection.last_media_time > 0.05:
-                        #dg_connection.send(SILENCE_FRAME)
+                    if time.time() - dg_connection.last_media_time > 0.05:
+                        dg_connection.send(SILENCE_FRAME)
                         #print("📡 Sent 20ms SILENCE frame to Deepgram")
 
-                #except Exception as e:
-                    #print(f"⚠️ KeepAlive error sending silence: {e}")
-                    #break
+                except Exception as e:
+                    print(f"⚠️ KeepAlive error sending silence: {e}")
+                    break
                     
-        #loop.create_task(deepgram_keepalive())
+        loop.create_task(deepgram_keepalive())
 
-        #async def deepgram_text_keepalive():
-            #while True:
-                #await asyncio.sleep(5)  # Send every 5 seconds
+        async def deepgram_text_keepalive():
+            while True:
+                await asyncio.sleep(5)  # Send every 5 seconds
 
-                #try:
-                    #dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                try:
+                    dg_connection.send(json.dumps({"type": "KeepAlive"}))
                     #print(f"📨 Sent text KeepAlive at {time.time()}")
 
-                #except Exception as e:
-                    #print(f"❌ Error sending text KeepAlive: {e}")
-                    #break  # Stop the loop if the connection is closed or broken
+                except Exception as e:
+                    print(f"❌ Error sending text KeepAlive: {e}")
+                    break  # Stop the loop if the connection is closed or broken
 
-        #loop.create_task(deepgram_text_keepalive())
+        loop.create_task(deepgram_text_keepalive())
 
         async def monitor_user_done():
             while not finished["done"]:
