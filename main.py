@@ -839,6 +839,7 @@ async def media_stream(ws: WebSocket):
                 elapsed = time.time() - last_time
 
                 if elapsed > 2.1 and not session["warned"]:
+                    print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
                     session["warned"] = True
                     print(f"🚩 Flag set: warned = True for session {sid}")
                     # handle timeout event here (later)
