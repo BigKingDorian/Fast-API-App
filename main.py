@@ -885,7 +885,7 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"❌ Failed to reconnect Deepgram: {e}")
                         
-        loop.create_task(deepgram_is_final_watchdog())
+        loop.create_task(deepgram_error_reconnection())
         
         def on_transcript(*args, **kwargs):
             try:
