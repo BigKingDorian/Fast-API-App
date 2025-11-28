@@ -847,43 +847,61 @@ async def media_stream(ws: WebSocket):
 
         loop.create_task(deepgram_is_final_watchdog())
 
-        async def deepgram_error_reconnection(sid: str):
+        async def deepgram_error_reconnection():
+            nonlocal dg_connection  # so we can replace the shared connection
+
             while True:
-                await asyncio.sleep(1)  # check every second, adjust as needed
+                await asyncio.sleep(1)  # check every second
 
-                if session_memory.get(sid, {}).get("zombie_detected"):
-                    print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
+                sid = call_sid_holder.get("sid")
+                if not sid:
+                    continue
 
-                    # Reset the flag
-                    session_memory[sid]["zombie_detected"] = False
+                session = session_memory.get(sid, {})
+                if not session.get("zombie_detected"):
+                    continue  # nothing to do
 
+                print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
+
+                # Reset zombie flags for this sid
+                session["zombie_detected"] = False
+                session["warned"] = False
+                session["last_is_final_time"] = None
+
+                try:
+                    # 🔌 Close old connection if present
                     try:
-                        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-                        live_client = deepgram.listen.live
-
-                        deepgram_options = {
-                            "punctuate": True,
-                            "interim_results": True,
-                            "model": "nova",
-                            "language": "en-US",
-                            "smart_format": True,
-                            "encoding": "mulaw",
-                            "sample_rate": 8000,
-                            "channels": 1,
-                            "endpointing": True,
-                        }
-
-                        dg_connection = await live_client.v("1").transcribe_stream(
-                            deepgram_options,
-                            on_transcript=on_transcript,
-                        )
-
-                        session_memory[sid]["dg_connection"] = dg_connection
-                        session_memory[sid]["dg_connected"] = True
-                        print("🔁 Deepgram reconnected successfully")
-
+                        if dg_connection is not None:
+                            print("🔌 Finishing old Deepgram connection before reconnect…")
+                            dg_connection.finish()
                     except Exception as e:
-                        print(f"❌ Failed to reconnect Deepgram: {e}")
+                        print(f"⚠️ Error finishing old Deepgram connection: {e}")
+
+                    # 🔁 Create a new connection just like at startup
+                    live_client = deepgram.listen.live
+                    new_conn = await asyncio.to_thread(live_client.v, "1")
+
+                    # Reattach handlers
+                    new_conn.on(LiveTranscriptionEvents.Transcript, on_transcript)
+                    new_conn.on(
+                        LiveTranscriptionEvents.Error,
+                        lambda err: print(f"🔴 Deepgram error (reconnected): {err}")
+                    )
+                    new_conn.on(
+                        LiveTranscriptionEvents.Close,
+                        lambda: print("🔴 Deepgram WebSocket closed (reconnected)")
+                    )
+
+                    # Start streaming with the same options you used originally
+                    new_conn.start(options)
+
+                    # Swap global connection reference so keepalives use the new one
+                    dg_connection = new_conn
+
+                    print("🔁 Deepgram reconnected successfully")
+
+                except Exception as e:
+                    print(f"❌ Failed to reconnect Deepgram: {e}")
                         
         loop.create_task(deepgram_error_reconnection())
         
