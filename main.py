@@ -842,8 +842,49 @@ async def media_stream(ws: WebSocket):
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
                     session["warned"] = True
                     print(f"🚩 Flag set: warned = True for session {sid}")
-                    # handle timeout event here (later)
+                    session_memory[sid]["zombie_detected"] = True
+                    print(f"🧟 Detected Deepgram zombie stream for {sid}, reconnecting...")
 
+        loop.create_task(deepgram_is_final_watchdog())
+
+        async def deepgram_error_reconnection(sid: str):
+            while True:
+                await asyncio.sleep(1)  # check every second, adjust as needed
+
+                if session_memory.get(sid, {}).get("zombie_detected"):
+                    print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
+
+                    # Reset the flag
+                    session_memory[sid]["zombie_detected"] = False
+
+                    try:
+                        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+                        live_client = deepgram.listen.live
+
+                        deepgram_options = {
+                            "punctuate": True,
+                            "interim_results": True,
+                            "model": "nova",
+                            "language": "en-US",
+                            "smart_format": True,
+                            "encoding": "mulaw",
+                            "sample_rate": 8000,
+                            "channels": 1,
+                            "endpointing": True,
+                        }
+
+                        dg_connection = await live_client.v("1").transcribe_stream(
+                            deepgram_options,
+                            on_transcript=on_transcript,
+                        )
+
+                        session_memory[sid]["dg_connection"] = dg_connection
+                        session_memory[sid]["dg_connected"] = True
+                        print("🔁 Deepgram reconnected successfully")
+
+                    except Exception as e:
+                        print(f"❌ Failed to reconnect Deepgram: {e}")
+                        
         loop.create_task(deepgram_is_final_watchdog())
         
         def on_transcript(*args, **kwargs):
