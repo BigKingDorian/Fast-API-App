@@ -761,6 +761,9 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
+       # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
+    MAX_BUFFER_BYTES = 32000
+
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
@@ -857,7 +860,7 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                session = session_memory.get(sid, {})
+                session = session_memory.setdefault(sid, {})
                 if not session.get("zombie_detected"):
                     continue  # nothing to do
 
@@ -900,9 +903,20 @@ async def media_stream(ws: WebSocket):
 
                     print("🔁 Deepgram reconnected successfully")
 
+                    # ⏪ Flush buffered audio so Deepgram "catches up"
+                    buffer = session.get("audio_buffer", None)
+                    if buffer:
+                        try:
+                            new_conn.send(bytes(buffer))
+                            print(f"⏪ Sent {len(buffer)} bytes of buffered audio after reconnect for {sid}")
+                            # Optional: reset buffer or keep a short tail
+                            session["audio_buffer"] = bytearray()
+                        except Exception as e:
+                            print(f"⚠️ Error sending buffered audio after reconnect: {e}")
+
                 except Exception as e:
                     print(f"❌ Failed to reconnect Deepgram: {e}")
-                        
+                    
         loop.create_task(deepgram_error_reconnection())
         
         def on_transcript(*args, **kwargs):
@@ -1150,24 +1164,49 @@ async def media_stream(ws: WebSocket):
 
                     call_sid_holder["sid"] = sid
 
-                    session_memory.setdefault(sid, {})
-                    session_memory[sid]["close_requested"] = False   # ← RESET HERE ONLY
+                    session = session_memory.setdefault(sid, {})
+                    session["close_requested"] = False   # ← RESET HERE ONLY
 
                     # Reset deepgram_is_final_watchdog
-                    session_memory[sid]["warned"] = False
+                    session["warned"] = False
                     print(f"🚩 Flag set: warned = False for session")
-                    session_memory[sid]["last_is_final_time"] = None
+                    session["last_is_final_time"] = None
+
+                    # 🔁 Init / reset audio buffer for this call
+                    session["audio_buffer"] = bytearray()
+                    print(f"🧺 Initialized audio_buffer for {sid}")
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
+
 
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
-                        dg_connection.send(payload)
-                    except Exception as e:
-                        print(f"⚠️ Error sending to Deepgram: {e}")
 
+                        # 🔊 Look up the current sid
+                        sid = call_sid_holder.get("sid")
+                        if sid:
+                            session = session_memory.setdefault(sid, {})
+
+                            # 🧺 Get / init buffer
+                            buf = session.setdefault("audio_buffer", bytearray())
+                            buf.extend(payload)
+
+                            # 🧽 Keep only the last MAX_BUFFER_BYTES
+                            if len(buf) > MAX_BUFFER_BYTES:
+                                # keep tail only
+                                session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
+
+                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
+                        try:
+                            dg_connection.send(payload)
+                        except Exception as e:
+                            print(f"⚠️ Error sending to Deepgram (live): {e}")
+
+                    except Exception as e:
+                        print(f"⚠️ Error processing Twilio media: {e}")
+                        
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
