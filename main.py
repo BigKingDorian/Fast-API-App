@@ -760,6 +760,7 @@ async def greeting_rout(request: Request):
 async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
+    websocket_closed = {"value": False}
 
        # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
     MAX_BUFFER_BYTES = 32000
@@ -815,8 +816,13 @@ async def media_stream(ws: WebSocket):
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
                     print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
-                    await ws.close()
-                    return      # <-- THIS ENDS /media, allows next turn
+                    try:
+                        if not websocket_closed["value"]:       # 👈 guard
+                            websocket_closed["value"] = True
+                            await ws.close()
+                    except Exception as e:
+                        print(f"⚠️ Error closing WebSocket in watchdog: {e}")
+                    return  # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
 
@@ -1229,9 +1235,14 @@ async def media_stream(ws: WebSocket):
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
+
         try:
-            await ws.close()
+            if not websocket_closed["value"]:        # 👈 guard here too
+                websocket_closed["value"] = True
+                await ws.close()
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
+
         print("✅ Connection closed")
+
       
