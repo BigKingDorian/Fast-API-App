@@ -871,17 +871,6 @@ async def media_stream(ws: WebSocket):
                 session["warned"] = False
                 session["last_is_final_time"] = None
 
-                # ⏱️ Update timestamp offset so new stream timestamps stay continuous
-                prev_offset = session.get("timestamp_offset", 0.0)
-                last_ts = session.get("last_original_timestamp", 0.0)
-
-                # Each time we reconnect, we add the last stream's duration
-                new_offset = prev_offset + last_ts
-                session["timestamp_offset"] = new_offset
-                session["last_original_timestamp"] = 0.0  # reset for the new stream
-
-                print(f"⏱️ Updated timestamp_offset for {sid}: {new_offset:.3f}s (prev={prev_offset:.3f}s, last_ts={last_ts:.3f}s)")
-        
                 try:
                     # 🔌 Close old connection if present
                     try:
@@ -950,56 +939,12 @@ async def media_stream(ws: WebSocket):
                     now = time.time()
                     speech_final = payload.get("speech_final", False)
 
-                    # Ensure we have a session for timestamp offsets
-                    session = session_memory.setdefault(sid, {})
-                    ts_offset = session.get("timestamp_offset", 0.0)
-
                     try:
                         alt = payload["channel"]["alternatives"][0]
                         sentence = alt.get("transcript", "")
                         confidence = alt.get("confidence", 0.0)
                         is_final = payload["is_final"] if "is_final" in payload else False
 
-                        # ⏱️ Realign Deepgram timestamps (if present)
-                        words = alt.get("words", [])
-                        last_ts_in_this_alt = 0.0
-
-                        if words:
-                            for w in words:
-                                # Original timestamps from Deepgram
-                                start = w.get("start")
-                                end = w.get("end")
-
-                                # Compute aligned timestamps = original + offset
-                                if start is not None:
-                                    w["aligned_start"] = start + ts_offset
-                                if end is not None:
-                                    w["aligned_end"] = end + ts_offset
-                                    last_ts_in_this_alt = max(last_ts_in_this_alt, end)
-
-                            # Optional: log first aligned word for debugging
-                            first = words[0]
-                            print(
-                                f"⏱️ Aligned word[0]: "
-                                f"orig=({first.get('start')}, {first.get('end')}), "
-                                f"aligned=({first.get('aligned_start')}, {first.get('aligned_end')})"
-                            )
-
-                        # Also optionally align segment-level start/end if they exist
-                        seg_start = alt.get("start")
-                        seg_end = alt.get("end")
-                        if seg_start is not None:
-                            alt["aligned_start"] = seg_start + ts_offset
-                        if seg_end is not None:
-                            alt["aligned_end"] = seg_end + ts_offset
-                            last_ts_in_this_alt = max(last_ts_in_this_alt, seg_end or 0.0)
-
-                        # Update last_original_timestamp so reconnections know how far we've gone
-                        if last_ts_in_this_alt > 0.0:
-                            prev_last = session.get("last_original_timestamp", 0.0)
-                            session["last_original_timestamp"] = max(prev_last, last_ts_in_this_alt)
-
-                        # Existing logic stays the same after this
                         state["is_final"] = is_final
                         state["sentence"] = sentence
                         state["confidence"] = confidence
@@ -1226,10 +1171,6 @@ async def media_stream(ws: WebSocket):
                     session["warned"] = False
                     print(f"🚩 Flag set: warned = False for session")
                     session["last_is_final_time"] = None
-
-                    # ⏱️ Init timestamp realignment state
-                    session.setdefault("timestamp_offset", 0.0)
-                    session.setdefault("last_original_timestamp", 0.0)
 
                     # 🔁 Init / reset audio buffer for this call
                     session["audio_buffer"] = bytearray()
