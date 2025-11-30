@@ -760,7 +760,6 @@ async def greeting_rout(request: Request):
 async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
-    websocket_closed = {"value": False}
 
        # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
     MAX_BUFFER_BYTES = 32000
@@ -816,13 +815,8 @@ async def media_stream(ws: WebSocket):
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
                     print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
-                    try:
-                        if not websocket_closed["value"]:       # 👈 guard
-                            websocket_closed["value"] = True
-                            await ws.close()
-                    except Exception as e:
-                        print(f"⚠️ Error closing WebSocket in watchdog: {e}")
-                    return  # <-- THIS ENDS /media, allows next turn
+                    await ws.close()
+                    return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
 
@@ -1071,16 +1065,9 @@ async def media_stream(ws: WebSocket):
             except Exception as e:  # ← This closes the OUTER try
                 print(f"⚠️ Error handling transcript: {e}")
                 
-        def on_dg_error(err, *args, **kwargs):
-            print(f"🔴 Deepgram error: {err}")
-
-        def on_dg_close(*args, **kwargs):
-            print("🔴 Deepgram WebSocket closed")
-
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, on_dg_error)
-        dg_connection.on(LiveTranscriptionEvents.Close, on_dg_close)
-
+        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
+        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
 
         options = LiveOptions(
             model="nova-3",
@@ -1134,80 +1121,117 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-
+        
                 if (
-                    elapsed > 2.0
-                    and last_transcript["confidence"] >= 0.5
-                    and last_transcript.get("is_final", False)
+                    elapsed > 2.0 and
+                    last_transcript["confidence"] >= 0.5 and
+                    last_transcript.get("is_final", False)
                 ):
-                    print(
-                        f"✅ User finished speaking (elapsed: {elapsed:.1f}s, "
-                        f"confidence: {last_transcript['confidence']})"
-                    )
+                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
-
+                    
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(
-                            call_sid_holder["sid"], {}
-                        ).get("audio_path")
+                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
-
+                        
         loop.create_task(monitor_user_done())
-
+        
         async def sender():
-            while not websocket_closed["value"]:
+            while True:
                 try:
                     raw = await ws.receive_text()
                 except WebSocketDisconnect:
                     print("✖️ Twilio WebSocket disconnected")
-                    websocket_closed["value"] = True
                     break
                 except Exception as e:
-                    # This often happens if the socket was already closed
-                    # (e.g. by the watchdog) while we were waiting on receive_text()
-                    if websocket_closed["value"]:
-                        print(f"ℹ️ receive_text() failed after close: {e}")
-                    else:
-                        print(f"⚠️ Unexpected error receiving message: {e}")
-                        websocket_closed["value"] = True
+                    print(f"⚠️ Unexpected error receiving message: {e}")
                     break
+
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
+
                 event = msg.get("event")
+
                 if event == "start":
-                    start_info = msg["start"]
-                    # 🔹 MAKE SURE WE ACTUALLY DEFINE `sid` HERE
                     sid = (
-                        start_info.get("callSid")
-                        or start_info.get("CallSid")
-                        or start_info.get("callerSid")
-                        or start_info.get("CallerSid")
+                        msg["start"].get("callSid")
+                        or msg["start"].get("CallSid")
+                        or msg["start"].get("callerSid")
+                        or msg["start"].get("CallerSid")
                     )
-                    if not sid:
-                        print(f"⚠️ 'start' event missing SID: {start_info}")
-                        continue
+
                     call_sid_holder["sid"] = sid
+
                     session = session_memory.setdefault(sid, {})
                     session["close_requested"] = False   # ← RESET HERE ONLY
+
                     # Reset deepgram_is_final_watchdog
                     session["warned"] = False
-                    print(f"🚩 Flag set: warned = False for session {sid}")
+                    print(f"🚩 Flag set: warned = False for session")
                     session["last_is_final_time"] = None
+
                     # 🔁 Init / reset audio buffer for this call
                     session["audio_buffer"] = bytearray()
                     print(f"🧺 Initialized audio_buffer for {sid}")
+
                     print(f"📞 Stream started for {sid}, close_requested=False")
+
+
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
-                        # 🔊 Look
+
+                        # 🔊 Look up the current sid
+                        sid = call_sid_holder.get("sid")
+                        if sid:
+                            session = session_memory.setdefault(sid, {})
+
+                            # 🧺 Get / init buffer
+                            buf = session.setdefault("audio_buffer", bytearray())
+                            buf.extend(payload)
+
+                            # 🧽 Keep only the last MAX_BUFFER_BYTES
+                            if len(buf) > MAX_BUFFER_BYTES:
+                                # keep tail only
+                                session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
+
+                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
+                        try:
+                            dg_connection.send(payload)
+                        except Exception as e:
+                            print(f"⚠️ Error sending to Deepgram (live): {e}")
+
+                    except Exception as e:
+                        print(f"⚠️ Error processing Twilio media: {e}")
+                        
+                elif event == "stop":
+                    print("⏹ Stream stopped by Twilio")
+                    break
+
+        await sender()
+
+    except Exception as e:
+        print(f"⛔ Deepgram error: {e}")
+
+    finally:
+        if dg_connection:
+            try:
+                dg_connection.finish()
+            except Exception as e:
+                print(f"⚠️ Error closing Deepgram connection: {e}")
+        try:
+            await ws.close()
+        except Exception as e:
+            print(f"⚠️ Error closing WebSocket: {e}")
+        print("✅ Connection closed")
+      
