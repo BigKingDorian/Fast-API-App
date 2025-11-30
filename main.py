@@ -1187,34 +1187,65 @@ async def media_stream(ws: WebSocket):
                 event = msg.get("event")
 
                 if event == "start":
-                    ...
+                    start_info = msg["start"]
+
+                    # 🔹 MAKE SURE WE ACTUALLY DEFINE `sid` HERE
+                    sid = (
+                        start_info.get("callSid")
+                        or start_info.get("CallSid")
+                        or start_info.get("callerSid")
+                        or start_info.get("CallerSid")
+                    )
+
+                    if not sid:
+                        print(f"⚠️ 'start' event missing SID: {start_info}")
+                        continue
+
+                    call_sid_holder["sid"] = sid
+
+                    session = session_memory.setdefault(sid, {})
+                    session["close_requested"] = False   # ← RESET HERE ONLY
+
+                    # Reset deepgram_is_final_watchdog
+                    session["warned"] = False
+                    print(f"🚩 Flag set: warned = False for session {sid}")
+                    session["last_is_final_time"] = None
+
+                    # 🔁 Init / reset audio buffer for this call
+                    session["audio_buffer"] = bytearray()
+                    print(f"🧺 Initialized audio_buffer for {sid}")
+
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
                 elif event == "media":
-                    ...
+                    try:
+                        payload = base64.b64decode(msg["media"]["payload"])
+                        dg_connection.last_media_time = time.time()
+
+                        # 🔊 Look up the current sid
+                        sid = call_sid_holder.get("sid")
+                        if sid:
+                            session = session_memory.setdefault(sid, {})
+
+                            # 🧺 Get / init buffer
+                            buf = session.setdefault("audio_buffer", bytearray())
+                            buf.extend(payload)
+
+                            # 🧽 Keep only the last MAX_BUFFER_BYTES
+                            if len(buf) > MAX_BUFFER_BYTES:
+                                # keep tail only
+                                session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
+
+                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
+                        try:
+                            dg_connection.send(payload)
+                        except Exception as e:
+                            print(f"⚠️ Error sending to Deepgram (live): {e}")
+
+                    except Exception as e:
+                        print(f"⚠️ Error processing Twilio media: {e}")
+
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-
-        # 👇 THIS LINE MUST BE AT 8 SPACES INDENT (inside the outer try)
-        await sender()
-
-    # 👇 THESE MUST BE ALIGNED WITH THE OUTER `try:` (4 spaces, same as `try:`)
-    except Exception as e:
-        print(f"⛔ Deepgram error in /media: {e}")
-
-    finally:
-        if dg_connection:
-            try:
-                dg_connection.finish()
-            except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
-
-        try:
-            if not websocket_closed["value"]:
-                websocket_closed["value"] = True
-                await ws.close()
-        except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
-
-        print("✅ Connection closed")
+                    
