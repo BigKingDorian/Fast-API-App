@@ -1130,31 +1130,36 @@ async def media_stream(ws: WebSocket):
 
         loop.create_task(deepgram_text_keepalive())
 
-        async def monitor_user_done():
+       async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-        
+
                 if (
-                    elapsed > 2.0 and
-                    last_transcript["confidence"] >= 0.5 and
-                    last_transcript.get("is_final", False)
+                    elapsed > 2.0
+                    and last_transcript["confidence"] >= 0.5
+                    and last_transcript.get("is_final", False)
                 ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    print(
+                        f"✅ User finished speaking (elapsed: {elapsed:.1f}s, "
+                        f"confidence: {last_transcript['confidence']})"
+                    )
                     finished["done"] = True
-                    
+
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
+                        audio_path = session_memory.get(
+                            call_sid_holder["sid"], {}
+                        ).get("audio_path")
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
-                        
+
         loop.create_task(monitor_user_done())
-        
+
         async def sender():
             while not websocket_closed["value"]:
                 try:
@@ -1196,7 +1201,7 @@ async def media_stream(ws: WebSocket):
 
                     # Reset deepgram_is_final_watchdog
                     session["warned"] = False
-                    print(f"🚩 Flag set: warned = False for session")
+                    print("🚩 Flag set: warned = False for session")
                     session["last_is_final_time"] = None
 
                     # 🔁 Init / reset audio buffer for this call
@@ -1236,4 +1241,5 @@ async def media_stream(ws: WebSocket):
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-                    
+
+        await sender()
