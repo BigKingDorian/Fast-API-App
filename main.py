@@ -1130,7 +1130,7 @@ async def media_stream(ws: WebSocket):
 
         loop.create_task(deepgram_text_keepalive())
 
-       async def monitor_user_done():
+        async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
