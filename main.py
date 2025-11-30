@@ -1231,6 +1231,8 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error closing Deepgram connection: {e}")
         try:
             await ws.close()
+            session_memory[call_sid]["sender_function_closed_websocket"] = True
+            print("sender_function_closed_websocket = True")
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
