@@ -1071,9 +1071,16 @@ async def media_stream(ws: WebSocket):
             except Exception as e:  # ← This closes the OUTER try
                 print(f"⚠️ Error handling transcript: {e}")
                 
+        def on_dg_error(err, *args, **kwargs):
+            print(f"🔴 Deepgram error: {err}")
+
+        def on_dg_close(*args, **kwargs):
+            print("🔴 Deepgram WebSocket closed")
+
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(LiveTranscriptionEvents.Close, lambda: print("🔴 Deepgram WebSocket closed"))
+        dg_connection.on(LiveTranscriptionEvents.Error, on_dg_error)
+        dg_connection.on(LiveTranscriptionEvents.Close, on_dg_close)
+
 
         options = LiveOptions(
             model="nova-3",
@@ -1149,14 +1156,21 @@ async def media_stream(ws: WebSocket):
         loop.create_task(monitor_user_done())
         
         async def sender():
-            while True:
+            while not websocket_closed["value"]:
                 try:
                     raw = await ws.receive_text()
                 except WebSocketDisconnect:
                     print("✖️ Twilio WebSocket disconnected")
+                    websocket_closed["value"] = True
                     break
                 except Exception as e:
-                    print(f"⚠️ Unexpected error receiving message: {e}")
+                    # This often happens if the socket was already closed
+                    # (e.g. by the watchdog) while we were waiting on receive_text()
+                    if websocket_closed["value"]:
+                        print(f"ℹ️ receive_text() failed after close: {e}")
+                    else:
+                        print(f"⚠️ Unexpected error receiving message: {e}")
+                        websocket_closed["value"] = True
                     break
 
                 try:
@@ -1191,7 +1205,6 @@ async def media_stream(ws: WebSocket):
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
-
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
@@ -1219,30 +1232,8 @@ async def media_stream(ws: WebSocket):
 
                     except Exception as e:
                         print(f"⚠️ Error processing Twilio media: {e}")
-                        
+
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-
-        await sender()
-
-    except Exception as e:
-        print(f"⛔ Deepgram error: {e}")
-
-    finally:
-        if dg_connection:
-            try:
-                dg_connection.finish()
-            except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
-
-        try:
-            if not websocket_closed["value"]:        # 👈 guard here too
-                websocket_closed["value"] = True
-                await ws.close()
-        except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
-
-        print("✅ Connection closed")
-
-      
+                    
