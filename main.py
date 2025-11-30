@@ -1241,5 +1241,3 @@ async def media_stream(ws: WebSocket):
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-
-        await sender()
