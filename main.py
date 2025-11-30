@@ -1248,4 +1248,6 @@ async def media_stream(ws: WebSocket):
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-                    
+
+            except Exception as e:
+                print(f"⚠️ Error in media_stream: {e}")
