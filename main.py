@@ -781,10 +781,6 @@ async def media_stream(ws: WebSocket):
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
-
-    #Let Keep Alive Logic Run 
-    session_memory[sid]["clean_websocket_close"] = False
-    print("🧼 clean_websocket_close = False")
     
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
@@ -820,9 +816,10 @@ async def media_stream(ws: WebSocket):
 
                     print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
                     await ws.close()
-                    #Pause Keep Alive Functions When True
-                    session_memory[sid]["clean_websocket_close"] = True
-                    print("🧼 clean_websocket_close = True")
+                    # Pause Keep Alive Functions When True
+                    session = session_memory.setdefault(sid, {})
+                    session["clean_websocket_close"] = True
+                    print(f"🧼 clean_websocket_close = True for {sid}")
                     return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
@@ -1192,6 +1189,9 @@ async def media_stream(ws: WebSocket):
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
+                    #Let Keep Alive Logic Run 
+                    session_memory[sid]["clean_websocket_close"] = False
+                    print("🧼 clean_websocket_close = False")
 
                 elif event == "media":
                     try:
