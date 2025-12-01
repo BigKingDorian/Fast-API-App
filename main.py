@@ -1241,23 +1241,32 @@ async def media_stream(ws: WebSocket):
         print(f"⛔ Deepgram error: {e}")
 
     finally:
+        # 1) Always try to finish Deepgram if it exists
         if dg_connection:
             try:
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
 
-            sid = call_sid_holder.get("sid")
- 
-            if not sid and session_memory.get(sid, {}).get("clean_websocket_close"):
-                print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
-                try:
+        # 2) Now handle the WebSocket close, guarded by clean_websocket_close
+        sid = call_sid_holder.get("sid")
+
+        try:
+            if sid:
+                session = session_memory.setdefault(sid, {})
+                # ✅ Only close WebSocket if we have NOT already done a clean close
+                if not session.get("clean_websocket_close", False):
+                    print(f"🔻 finally: WebSocket still open for {sid}, closing now")
                     await ws.close()
-                    #Pause Keep Alive Functions When True
-                    session_memory[sid]["clean_websocket_close"] = True
-                    print("🧼 clean_websocket_close = True")
+                    session["clean_websocket_close"] = True
+                    print(f"🧼 clean_websocket_close = True for {sid} (finally)")
                 else:
-                    print(f"ℹ️ WebSocket already cleanly closed for {sid}, skipping ws.close()")
+                    print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
+            else:
+                # No sid? best-effort close without flag logic
+                print("ℹ️ finally: no sid in call_sid_holder, closing ws without flag")
+                await ws.close()
         except Exception as e:
-            print(f"⚠️ Error closing WebSocket: {e}")
+            print(f"⚠️ Error closing WebSocket in finally: {e}")
+
         print("✅ Connection closed")
