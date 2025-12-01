@@ -816,6 +816,8 @@ async def media_stream(ws: WebSocket):
 
                     print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
                     await ws.close()
+                    session_memory[sid]["clean_websocket_close"] = True
+                    print("🧼 clean_websocket_close = True")
                     return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
@@ -1231,8 +1233,8 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error closing Deepgram connection: {e}")
         try:
             await ws.close()
-            session_memory[call_sid]["sender_function_closed_websocket"] = True
-            print("sender_function_closed_websocket = True")
+            session_memory[sid]["clean_websocket_close"] = True
+            print("🧼 clean_websocket_close = True")
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
