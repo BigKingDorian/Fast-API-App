@@ -1095,6 +1095,11 @@ async def media_stream(ws: WebSocket):
             while True:
                 await asyncio.sleep(0.02)  # run every 20ms
 
+                sid = call_sid_holder.get("sid")
+                if sid and session_memory.get(sid, {}).get("clean_websocket_close"):
+                    print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
+                    break
+                
                 try:
                     # If Twilio has been silent for 50ms → send silence
                     if time.time() - dg_connection.last_media_time > 0.05:
@@ -1110,6 +1115,11 @@ async def media_stream(ws: WebSocket):
         async def deepgram_text_keepalive():
             while True:
                 await asyncio.sleep(5)  # Send every 5 seconds
+
+                sid = call_sid_holder.get("sid")
+                if sid and session_memory.get(sid, {}).get("clean_websocket_close"):
+                    print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
+                    break
 
                 try:
                     dg_connection.send(json.dumps({"type": "KeepAlive"}))
@@ -1211,8 +1221,8 @@ async def media_stream(ws: WebSocket):
                             if len(buf) > MAX_BUFFER_BYTES:
                                 # keep tail only
                                 session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
-
-                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
+                        
+                        # 🔴 Try to send live to Deepgram (may fail during reconnect)   
                         try:
                             dg_connection.send(payload)
                         except Exception as e:
