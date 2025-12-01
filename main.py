@@ -761,10 +761,6 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-    #Let Keep Alive Logic Run 
-    session_memory[sid]["clean_websocket_close"] = False
-    print("🧼 clean_websocket_close = False")
-
     # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
     MAX_BUFFER_BYTES = 32000
 
@@ -785,6 +781,10 @@ async def media_stream(ws: WebSocket):
     loop = asyncio.get_running_loop()
     deepgram = DeepgramClient(DEEPGRAM_API_KEY)
     dg_connection = None
+
+    #Let Keep Alive Logic Run 
+    session_memory[sid]["clean_websocket_close"] = False
+    print("🧼 clean_websocket_close = False")
     
     try:
         print("⚙️ Connecting to Deepgram live transcription...")
