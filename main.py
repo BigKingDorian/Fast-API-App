@@ -1118,7 +1118,7 @@ async def media_stream(ws: WebSocket):
 
                 sid = call_sid_holder.get("sid")
                 if sid and session_memory.get(sid, {}).get("clean_websocket_close"):
-                    print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
+                    print(f"🧼 Stopping deepgram_text_keepalive for {sid} (clean_websocket_close=True)")
                     break
 
                 try:
