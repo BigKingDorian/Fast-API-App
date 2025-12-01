@@ -761,7 +761,11 @@ async def media_stream(ws: WebSocket):
     await ws.accept()
     print("★ Twilio WebSocket connected")
 
-       # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
+    #Let Keep Alive Logic Run 
+    session_memory[sid]["clean_websocket_close"] = False
+    print("🧼 clean_websocket_close = False")
+
+    # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
     MAX_BUFFER_BYTES = 32000
 
     call_sid_holder = {"sid": None}
@@ -816,6 +820,7 @@ async def media_stream(ws: WebSocket):
 
                     print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
                     await ws.close()
+                    #Pause Keep Alive Functions When True
                     session_memory[sid]["clean_websocket_close"] = True
                     print("🧼 clean_websocket_close = True")
                     return      # <-- THIS ENDS /media, allows next turn
@@ -1233,6 +1238,7 @@ async def media_stream(ws: WebSocket):
                 print(f"⚠️ Error closing Deepgram connection: {e}")
         try:
             await ws.close()
+            #Pause Keep Alive Functions When True
             session_memory[sid]["clean_websocket_close"] = True
             print("🧼 clean_websocket_close = True")
         except Exception as e:
