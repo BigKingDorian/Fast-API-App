@@ -1221,7 +1221,7 @@ async def media_stream(ws: WebSocket):
                             if len(buf) > MAX_BUFFER_BYTES:
                                 # keep tail only
                                 session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
-                        
+
                         # 🔴 Try to send live to Deepgram (may fail during reconnect)   
                         try:
                             dg_connection.send(payload)
@@ -1246,12 +1246,18 @@ async def media_stream(ws: WebSocket):
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
-        try:
-            await ws.close()
-            #Pause Keep Alive Functions When True
-            session_memory[sid]["clean_websocket_close"] = True
-            print("🧼 clean_websocket_close = True")
+
+            sid = call_sid_holder.get("sid")
+ 
+            if not sid and session_memory.get(sid, {}).get("clean_websocket_close"):
+                print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
+                try:
+                    await ws.close()
+                    #Pause Keep Alive Functions When True
+                    session_memory[sid]["clean_websocket_close"] = True
+                    print("🧼 clean_websocket_close = True")
+                else:
+                    print(f"ℹ️ WebSocket already cleanly closed for {sid}, skipping ws.close()")
         except Exception as e:
             print(f"⚠️ Error closing WebSocket: {e}")
         print("✅ Connection closed")
-      
