@@ -795,6 +795,7 @@ async def media_stream(ws: WebSocket):
                 }
             
             dg_connection = await asyncio.to_thread(live_client.v, "1")
+            #Would I have to insert a print statment here to detect when I make a successful Deepgram Connection?
         except Exception as e:
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
@@ -819,7 +820,7 @@ async def media_stream(ws: WebSocket):
                     # Pause Keep Alive Functions When True
                     session = session_memory.setdefault(sid, {})
                     session["clean_websocket_close"] = True
-                    print(f"🧼 clean_websocket_close = True for {sid}")
+                    print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
                     return      # <-- THIS ENDS /media, allows next turn
                     
         loop.create_task(deepgram_close_watchdog())
@@ -1112,6 +1113,7 @@ async def media_stream(ws: WebSocket):
                     # If Twilio has been silent for 50ms → send silence
                     if time.time() - dg_connection.last_media_time > 0.05:
                         dg_connection.send(SILENCE_FRAME)
+                        print(f"📡 Used .send for Silence Fram in deepgram_keepalive")
                 except Exception as e:
                     print(f"⚠️ KeepAlive error sending silence: {e}")
                     break
@@ -1129,6 +1131,7 @@ async def media_stream(ws: WebSocket):
 
                 try:
                     dg_connection.send(json.dumps({"type": "KeepAlive"}))
+                    print(f"📡 Used .send for Silence Fram in deepgram_text_keepalive")
                     #print(f"📨 Sent text KeepAlive at {time.time()}")
 
                 except Exception as e:
@@ -1231,6 +1234,7 @@ async def media_stream(ws: WebSocket):
                         # 🔴 Try to send live to Deepgram (may fail during reconnect)   
                         try:
                             dg_connection.send(payload)
+                            print(f"📡 Used .send for Silence Fram in sender")
                         except Exception as e:
                             print(f"⚠️ Error sending to Deepgram (live): {e}")
 
@@ -1265,7 +1269,7 @@ async def media_stream(ws: WebSocket):
                     print(f"🔻 finally: WebSocket still open for {sid}, closing now")
                     await ws.close()
                     session["clean_websocket_close"] = True
-                    print(f"🧼 clean_websocket_close = True for {sid} (finally)")
+                    print(f"🧼 clean_websocket_close from sender = True for {sid} (finally)")
                 else:
                     print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
             else:
