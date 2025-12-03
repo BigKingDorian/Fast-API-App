@@ -1165,6 +1165,7 @@ async def media_stream(ws: WebSocket):
         loop.create_task(monitor_user_done())
         
         async def sender():
+            send_counter = 0  # 👈 add this
             while True:
                 try:
                     raw = await ws.receive_text()
@@ -1233,7 +1234,12 @@ async def media_stream(ws: WebSocket):
                         # 🔴 Try to send live to Deepgram (may fail during reconnect)   
                         try:
                             dg_connection.send(payload)
-                            print(f"📡 Used .send for Silence Fram in sender")
+
+                            # throttle this log: only print ~every 50 sends
+                            if send_counter % 50 == 0:
+                                print(f"📡 Used .send for payload in sender (count={send_counter})")
+                            send_counter += 1
+
                         except Exception as e:
                             print(f"⚠️ Error sending to Deepgram (live): {e}")
 
