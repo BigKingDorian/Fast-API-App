@@ -1165,11 +1165,18 @@ async def media_stream(ws: WebSocket):
         loop.create_task(monitor_user_done())
         
         async def sender():
-            send_counter = 0  # 👈 add this
+            send_counter = 0  # already there
+            last_recv_log = 0.0  # 👈 add this
+
             while True:
                 try:
                     raw = await ws.receive_text()
-                    print(f"📡 Used ws.receive_text in Sender")
+
+                    now = time.time()
+                    if now - last_recv_log >= 0.5:  # 👈 only log every 500ms
+                        print("📡 Used ws.receive_text in Sender")
+                        last_recv_log = now
+
                 except WebSocketDisconnect:
                     print("✖️ Twilio WebSocket disconnected")
                     break
@@ -1182,7 +1189,7 @@ async def media_stream(ws: WebSocket):
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
-
+                    
                 event = msg.get("event")
 
                 if event == "start":
