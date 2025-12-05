@@ -795,7 +795,7 @@ async def media_stream(ws: WebSocket):
                 }
             
             dg_connection = await asyncio.to_thread(live_client.v, "1")
-            #Would I have to insert a print statment here to detect when I make a successful Deepgram Connection?
+            print(f"✅ [DG CONNECT] low-level Deepgram WS established")
         except Exception as e:
             print(f"⛔ Failed to create Deepgram connection: {e}")
             await ws.close()
@@ -1169,6 +1169,7 @@ async def media_stream(ws: WebSocket):
             while True:
                 try:
                     raw = await ws.receive_text()
+                    print(f"📡 Used ws.receive_text in Sender")
                 except WebSocketDisconnect:
                     print("✖️ Twilio WebSocket disconnected")
                     break
@@ -1279,8 +1280,10 @@ async def media_stream(ws: WebSocket):
                     print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
             else:
                 # No sid? best-effort close without flag logic
-                print("ℹ️ finally: no sid in call_sid_holder, closing ws without flag")
+                print(f"🔻 [WS CLOSE] About to call ws.close() for sid={sid} at {time.time():.3f}")
                 await ws.close()
+                print(f"✅ [WS CLOSE] ws.close() completed for sid={sid} at {time.time():.3f}")
+
         except Exception as e:
             print(f"⚠️ Error closing WebSocket in finally: {e}")
 
