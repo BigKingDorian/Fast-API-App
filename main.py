@@ -1177,22 +1177,38 @@ async def media_stream(ws: WebSocket):
         
         async def sender():
             send_counter = 0  # already there
-            last_recv_log = 0.0  # 👈 add this
+            last_recv_log = 0.0  # already there
 
             while True:
+                # 🛑 If some other task already closed the WebSocket, exit cleanly
+                if ws_state["closed"]:
+                    print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
+                    break
+
                 try:
                     raw = await ws.receive_text()
 
                     now = time.time()
-                    if now - last_recv_log >= 0.5:  # 👈 only log every 500ms
+                    if now - last_recv_log >= 0.5:  # only log every 500ms
                         print("📡 Used ws.receive_text in Sender")
                         last_recv_log = now
 
                 except WebSocketDisconnect:
-                    print("✖️ Twilio WebSocket disconnected")
+                    print("✖️ Twilio WebSocket disconnected (sender)")
+                    ws_state["closed"] = True
                     break
+
                 except Exception as e:
+                    msg = str(e)
+                    if "not connected" in msg or "Need to call \"accept\" first" in msg:
+                        # This just means the socket was already closed elsewhere
+                        print(f"ℹ️ sender(): WebSocket not connected anymore ({e}), exiting loop")
+                        ws_state["closed"] = True
+                        break
+
+                    # Only truly unexpected stuff gets logged as an error
                     print(f"⚠️ Unexpected error receiving message: {e}")
+                    ws_state["closed"] = True
                     break
 
                 try:
@@ -1200,7 +1216,9 @@ async def media_stream(ws: WebSocket):
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
-                    
+
+                # ... rest of your event handling (start/media/stop) unchanged ...
+ 
                 event = msg.get("event")
 
                 if event == "start":
