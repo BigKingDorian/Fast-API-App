@@ -764,6 +764,7 @@ async def media_stream(ws: WebSocket):
     # ~4 seconds of 8kHz μ-law audio (8000 bytes/sec)
     MAX_BUFFER_BYTES = 32000
 
+    ws_state = {"closed": False}
     call_sid_holder = {"sid": None}
     last_input_time = {"ts": time.time()}
     last_transcript = {"text": "", "confidence": 0.5, "is_final": False}
@@ -815,13 +816,23 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
-                    print("🟢 Deepgram closed — now closing WebSocket so Twilio can reconnect")
-                    await ws.close()
-                    # Pause Keep Alive Functions When True
                     session = session_memory.setdefault(sid, {})
+                    if ws_state["closed"]:
+                        print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
+                        return
+
+                    # ✅ Mark closed *before* calling ws.close(), so finally sees it
                     session["clean_websocket_close"] = True
+                    ws_state["closed"] = True
                     print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
-                    return      # <-- THIS ENDS /media, allows next turn
+
+                    try:
+                        print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
+                        await ws.close()
+                    except Exception as e:
+                        print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
+
+                    return
                     
         loop.create_task(deepgram_close_watchdog())
 
@@ -1264,34 +1275,35 @@ async def media_stream(ws: WebSocket):
         print(f"⛔ Deepgram error: {e}")
 
     finally:
-        # 1) Always try to finish Deepgram if it exists
         if dg_connection:
             try:
                 dg_connection.finish()
             except Exception as e:
                 print(f"⚠️ Error closing Deepgram connection: {e}")
 
-        # 2) Now handle the WebSocket close, guarded by clean_websocket_close
         sid = call_sid_holder.get("sid")
 
         try:
-            if sid:
-                session = session_memory.setdefault(sid, {})
-                # ✅ Only close WebSocket if we have NOT already done a clean close
-                if not session.get("clean_websocket_close", False):
-                    print(f"🔻 finally: WebSocket still open for {sid}, closing now")
-                    await ws.close()
-                    session["clean_websocket_close"] = True
-                    print(f"🧼 clean_websocket_close from sender = True for {sid} (finally)")
-                else:
-                    print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
+            if ws_state["closed"]:
+                print(f"ℹ️ finally: ws_state.closed already True (sid={sid}), skipping ws.close()")
             else:
-                # No sid? best-effort close without flag logic
-                print(f"🔻 [WS CLOSE] About to call ws.close() for sid={sid} at {time.time():.3f}")
-                await ws.close()
-                print(f"✅ [WS CLOSE] ws.close() completed for sid={sid} at {time.time():.3f}")
-
+                if sid:
+                    session = session_memory.setdefault(sid, {})
+                    if not session.get("clean_websocket_close", False):
+                        print(f"🔻 finally: WebSocket still open for {sid}, closing now")
+                        session["clean_websocket_close"] = True
+                        ws_state["closed"] = True
+                        await ws.close()
+                        print(f"🧼 clean_websocket_close from sender = True for {sid} (finally)")
+                    else:
+                        print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
+                else:
+                    print(f"🔻 [WS CLOSE] About to call ws.close() for sid={sid} at {time.time():.3f}")
+                    ws_state["closed"] = True
+                    await ws.close()
+                    print(f"✅ [WS CLOSE] ws.close() completed for sid={sid} at {time.time():.3f}")
         except Exception as e:
             print(f"⚠️ Error closing WebSocket in finally: {e}")
 
         print("✅ Connection closed")
+        
