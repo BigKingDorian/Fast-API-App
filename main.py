@@ -986,56 +986,33 @@ async def media_stream(ws: WebSocket):
                             if speech_final:
                                 sid = call_sid_holder.get("sid")
                                 session_memory.setdefault(sid, {})
-                                session_memory[sid]["close_requested"] = True
-                                print(f"🛑 Requested Deepgram close for {sid}")
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
                                 # STOP immediately if we already processed a final transcript this turn
                                 if session_memory[sid].get("user_response_processing"):
-                                    # ignore all future speech_final and final transcripts
                                     print(f"🚫 Ignoring transcript — already processing user response for {sid}")
                                     return
 
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
-                                    return  # Exit early, skipping the save logic below
+                                    return
 
                                 if call_sid_holder["sid"]:
                                     sid = call_sid_holder["sid"]
                                     session_memory.setdefault(sid, {})
 
-                                    # 🧠 Detect overwrite — compare old vs new transcript
-                                    prev_transcript = session_memory.get(sid, {}).get("user_transcript")
-                                    new_transcript = full_transcript.strip()
+                                    # ... overwrite detection, etc. ...
 
-                                    if prev_transcript != new_transcript:
-                                        if not new_transcript:
-                                            print(f"🚨 [OVERWRITE DETECTED - EMPTY TRANSCRIPT] SID: {sid}")
-                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                            print(f"     ✏️ New:      {repr(new_transcript)}")
-                                        else:
-                                            print(f"🔥 [OVERWRITE WARNING] SID: {sid}")
-                                            print(f"     🧠 Previous: {repr(prev_transcript)}")
-                                            print(f"     ✏️ New:      {repr(new_transcript)}")
-                                    else:
-                                        print(f"✅ [No Overwrite] SID: {sid} — transcript unchanged")
-
-                                    # ✅ Use full_transcript — it exists here
-                                    transcript_to_write = full_transcript
-                                    print(f"✍️ [DEBUG] Writing to session_memory[{sid}]['user_transcript']: \"{transcript_to_write}\"")
-
-                                    gpt_logged_at = session_memory.get(sid, {}).get("debug_gpt_input_logged_at")
-                                    if gpt_logged_at:
-                                        delay = time.time() - gpt_logged_at
-                                        if delay > 0:
-                                            print(f"🔥 [OVERWRITE WARNING] user_transcript written {delay:.2f}s AFTER GPT input was logged")
-
+                                    # flip ai_is_speaking off if block_start_time + audio_duration passed
                                     block_start_time = session_memory.get(sid, {}).get("block_start_time")
                                     print(f"🧠 Retrieved block_start_time: {block_start_time}")
-
-                                    if time.time() > session_memory[sid]["block_start_time"] + session_memory[sid]["audio_duration"]:
+                                    if (
+                                        block_start_time is not None
+                                        and session_memory[sid].get("audio_duration") is not None
+                                        and time.time() > block_start_time + session_memory[sid]["audio_duration"]
+                                    ):
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
@@ -1043,34 +1020,36 @@ async def media_stream(ws: WebSocket):
                                     if (
                                         session_memory[sid].get("ai_is_speaking") is False and
                                         session_memory[sid].get("user_response_processing") is False
-                                        ):
+                                    ):
+                                        # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
+                                        session_memory[sid]["close_requested"] = True
+                                        print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
+
                                         # ✅ Proceed with save
                                         session_memory[sid]["user_transcript"] = full_transcript
                                         session_memory[sid]["ready"] = True
                                         session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-
                                         save_transcript(sid, user_transcript=full_transcript)
 
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                        session_memory[sid]['user_response_processing'] = True
+                                        session_memory[sid]["user_response_processing"] = True
 
                                         # ✅ Clear after successful save
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
                                         last_transcript["is_final"] = False
-
                                     else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking")
+                                        log(f"🚫 [{sid}] Save skipped — AI still speaking or still processing previous turn")
 
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
                                         last_transcript["text"] = ""
                                         last_transcript["confidence"] = 0.0
                                         last_transcript["is_final"] = False
-
+                                        
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
