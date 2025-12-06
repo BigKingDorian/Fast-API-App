@@ -122,19 +122,27 @@ def get_last_audio_for_call(call_sid):
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
 
-    # ── FFmpeg conversion ─────────────────────────────────────────────────────
+    loop = asyncio.get_running_loop()
+
+    # ── FFmpeg conversion (off the event loop) ────────────────────────────────
     start = time.time()
     try:
-        subprocess.run([
-            "/usr/bin/ffmpeg", "-y", "-i", file_path,
-            "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
-        ], check=True)
+        def _run_ffmpeg():
+            subprocess.run(
+                [
+                    "/usr/bin/ffmpeg", "-y", "-i", file_path,
+                    "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
+                ],
+                check=True
+            )
+
+        await loop.run_in_executor(None, _run_ffmpeg)
     except subprocess.CalledProcessError as e:
         print(f"❌ FFmpeg failed: {e}")
         return None
     end = time.time()
 
-    print(f"⏱️ FFmpeg subprocess.run() took {end - start:.4f} seconds")
+    print(f"⏱️ FFmpeg run_in_executor() took {end - start:.4f} seconds")
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
 
     # ── Wait for file to appear (race condition guard) ────────────────────────
@@ -150,14 +158,20 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
 
-    # ── Measure duration with ffprobe ─────────────────────────────────────────
+    # ── Measure duration with ffprobe (off the event loop) ───────────────────
     try:
-        duration = float(subprocess.check_output([
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            converted_path
-        ]))
+        def _probe_duration():
+            out = subprocess.check_output(
+                [
+                    "ffprobe", "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    converted_path
+                ]
+            )
+            return float(out)
+
+        duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
         session_memory[call_sid]["audio_duration"] = duration
     except Exception as e:
@@ -195,20 +209,25 @@ async def get_11labs_audio(call_sid):
     gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
     print(f"🧠 GPT returned text: {gpt_text}")
 
-    # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
-    elevenlabs_response = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
-        headers={
-            "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
-            "Content-Type": "application/json"
-        },
-        json={
-            "text": gpt_text,
-            "model_id": "eleven_flash_v2_5",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-    )
-    
+    loop = asyncio.get_running_loop()
+
+    # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS (off the event loop) ───────────────
+    def _call_elevenlabs():
+        return requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+            headers={
+                "xi-api-key": os.getenv("ELEVENLABS_API_KEY"),
+                "Content-Type": "application/json"
+            },
+            json={
+                "text": gpt_text,
+                "model_id": "eleven_flash_v2_5",
+                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+            }
+        )
+
+    elevenlabs_response = await loop.run_in_executor(None, _call_elevenlabs)
+
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
     print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
@@ -216,7 +235,7 @@ async def get_11labs_audio(call_sid):
     print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
     print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-            f"bytes {len(elevenlabs_response.content)}")
+          f"bytes {len(elevenlabs_response.content)}")
 
     audio_bytes = elevenlabs_response.content
     unique_id = uuid.uuid4().hex
