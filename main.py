@@ -121,29 +121,79 @@ def get_last_audio_for_call(call_sid):
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
+    os.makedirs(os.path.dirname(converted_path), exist_ok=True)
     loop = asyncio.get_running_loop()
 
-    # ... your run_in_executor ffmpeg stuff ...
-
-    # Make sure the session exists before writing to it
     session = session_memory.setdefault(call_sid, {})
 
+    # 1) Run ffmpeg in a thread
+    def _run_ffmpeg():
+        return subprocess.run(
+            [
+                "/usr/bin/ffmpeg",
+                "-y",
+                "-i", file_path,
+                "-ar", "8000",
+                "-ac", "1",
+                "-c:a", "pcm_mulaw",
+                converted_path,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    try:
+        start = time.time()
+        result = await loop.run_in_executor(None, _run_ffmpeg)
+        print(f"⏱️ FFmpeg subprocess.run() took {time.time() - start:.4f} seconds")
+        print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+    except subprocess.CalledProcessError as e:
+        print("❌ FFmpeg failed:")
+        try:
+            print(e.stderr.decode(errors="ignore"))
+        except Exception:
+            pass
+        return None
+
+    # 2) Small guard to be extra sure the file exists
+    for i in range(40):
+        if os.path.isfile(converted_path):
+            print(f"✅ Found converted file after {i * 0.1:.1f}s")
+            break
+        await asyncio.sleep(0.1)
+    else:
+        print("❌ Converted file never appeared — aborting")
+        return None
+
+    # 3) Measure duration with ffprobe (also in a thread)
     try:
         def _probe_duration():
-            out = subprocess.check_output([
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                converted_path
-            ])
-            return float(out)
+            return float(
+                subprocess.check_output(
+                    [
+                        "ffprobe",
+                        "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        converted_path,
+                    ],
+                    stderr=subprocess.STDOUT,
+                )
+            )
 
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
         session["audio_duration"] = duration
-    except Exception as e:
-        print(f"⚠️ Failed to measure audio duration: {e}")
+    except subprocess.CalledProcessError as e:
+        print("⚠️ Failed to measure audio duration with ffprobe:")
+        try:
+            print(e.output.decode(errors="ignore"))
+        except Exception:
+            pass
+        duration = 0.0
 
+    # 4) Save transcript + flags
     audio_bytes = session.get("audio_bytes")
     gpt_text = session.get("gpt_text")
 
@@ -160,7 +210,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     print(f"🚩 Flag set: ffmpeg_audio_ready = True for session {call_sid}")
 
     return converted_path
-
+    
 async def get_11labs_audio(call_sid):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
