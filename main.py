@@ -121,65 +121,31 @@ def get_last_audio_for_call(call_sid):
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
-
     loop = asyncio.get_running_loop()
 
-    # ── FFmpeg conversion (off the event loop) ────────────────────────────────
-    start = time.time()
-    try:
-        def _run_ffmpeg():
-            subprocess.run(
-                [
-                    "/usr/bin/ffmpeg", "-y", "-i", file_path,
-                    "-ar", "8000", "-ac", "1", "-c:a", "pcm_mulaw", converted_path
-                ],
-                check=True
-            )
+    # ... your run_in_executor ffmpeg stuff ...
 
-        await loop.run_in_executor(None, _run_ffmpeg)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ FFmpeg failed: {e}")
-        return None
-    end = time.time()
+    # Make sure the session exists before writing to it
+    session = session_memory.setdefault(call_sid, {})
 
-    print(f"⏱️ FFmpeg run_in_executor() took {end - start:.4f} seconds")
-    print("🧭 Checking absolute path:", os.path.abspath(converted_path))
-
-    # ── Wait for file to appear (race condition guard) ────────────────────────
-    for i in range(40):
-        if os.path.isfile(converted_path):
-            print(f"✅ Found converted file after {i * 0.1:.1f}s")
-            break
-        await asyncio.sleep(0.1)
-    else:
-        print("❌ Converted file never appeared — aborting")
-        return None
-
-    print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
-    log("✅ Audio file saved at %s", converted_path)
-
-    # ── Measure duration with ffprobe (off the event loop) ───────────────────
     try:
         def _probe_duration():
-            out = subprocess.check_output(
-                [
-                    "ffprobe", "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    converted_path
-                ]
-            )
+            out = subprocess.check_output([
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                converted_path
+            ])
             return float(out)
 
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["audio_duration"] = duration
+        session["audio_duration"] = duration
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
 
-    # ── Save transcript and audio ─────────────────────────────────────────────
-    audio_bytes = session_memory[call_sid].get("audio_bytes")
-    gpt_text = session_memory[call_sid].get("gpt_text")
+    audio_bytes = session.get("audio_bytes")
+    gpt_text = session.get("gpt_text")
 
     if not audio_bytes:
         print("❌ audio_bytes missing in session_memory")
@@ -190,8 +156,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
-    # ── Final flag ────────────────────────────────────────────────────────────
-    session_memory[call_sid]["ffmpeg_audio_ready"] = True
+    session["ffmpeg_audio_ready"] = True
     print(f"🚩 Flag set: ffmpeg_audio_ready = True for session {call_sid}")
 
     return converted_path
@@ -466,32 +431,52 @@ async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    unique_id = session_memory[call_sid].get("unique_id")
-    file_path = session_memory[call_sid].get("file_path")
+    # 🔒 1) Make sure we actually have a session for this CallSid
+    session = session_memory.get(call_sid)
+    if not session:
+        print(f"❌ /4 hit but no session_memory entry for {call_sid}")
+        vr = VoiceResponse()
+        vr.say("Sorry, something went wrong. Let me reset.")
+        # You can choose where to send them: restart, or back to /3
+        vr.redirect("/")   # or vr.redirect("/3")
+        return Response(str(vr), media_type="application/xml")
 
+    # From here on, use `session` instead of indexing session_memory[call_sid]
+    unique_id = session.get("unique_id")
+    file_path = session.get("file_path")
+
+    # 🔒 2) If ElevenLabs step never populated these, handle gracefully
     if not unique_id or not file_path:
-        print("❌ Missing unique_id or file_path in session_memory")
-        return Response("Server error", status_code=500)
-        
-    if not session_memory[call_sid].get("ffmpeg_audio_fetch_started"):
-        session_memory[call_sid]["ffmpeg_audio_fetch_started"] = True
+        print(f"❌ Missing unique_id or file_path in session_memory for {call_sid}")
+        vr = VoiceResponse()
+        # Option A: try to re-trigger the 11Labs step
+        vr.redirect("/3")
+        # Option B: apologize + hang up instead:
+        # vr.say("Sorry, there was a problem preparing your audio.")
+        # vr.hangup()
+        return Response(str(vr), media_type="application/xml")
+
+    # 🔒 3) Kick off FFmpeg only once
+    if not session.get("ffmpeg_audio_fetch_started"):
+        session["ffmpeg_audio_fetch_started"] = True
         asyncio.create_task(convert_audio_ulaw(call_sid, file_path, unique_id))
         print("🚀 Started FFmpeg task in background")
-        session_memory[call_sid]["11labs_audio_fetch_started"] = False
+        session["11labs_audio_fetch_started"] = False
         print(f"🚩 Flag set: 11labs_audio_fetch_started = False for session {call_sid}")
-        session_memory[call_sid]["11labs_audio_ready"] = False
+        session["11labs_audio_ready"] = False
         print(f"🚩 Flag set: 11labs_audio_ready = False for session {call_sid}")
 
     vr = VoiceResponse()
-        
-    if session_memory[call_sid].get("ffmpeg_audio_ready"):
+
+    # 🔒 4) Only redirect to /5 once FFmpeg says the audio is ready
+    if session.get("ffmpeg_audio_ready"):
         print("✅ FFmpeg audio is ready — redirecting to /5")
         vr.redirect("/5")
-        return Response(str(vr), media_type="application/xml")  # ✅ FIX
     else:
-        vr.redirect("/wait4")
         print("👋 Redirecting to /wait4")
-        return Response(str(vr), media_type="application/xml")
+        vr.redirect("/wait4")
+
+    return Response(str(vr), media_type="application/xml")
 
 @app.post("/5")
 async def post5(request: Request):
