@@ -182,15 +182,23 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
     if updates:
         await save_session_values(call_sid, **updates)
 
-async def get_last_audio_for_call(call_sid):
-    audio_path = await get_session_value(call_sid, "audio_path")
+async def get_last_audio_for_call(call_sid: str) -> str | None:
+    if not redis_client:
+        # fallback to in-memory if you're mixing both
+        data = session_memory.get(call_sid)
+        path = data.get("audio_path") if data else None
+        log(f"🎧 [fallback] audio_path from session_memory for {call_sid}: {path}")
+        return path
 
+    key = f"lotus:{call_sid}"
+    data = await redis_client.hgetall(key)  # returns dict of strings
+    audio_path = data.get("audio_path")
     if audio_path:
-        log(f"🎧 Retrieved audio path for {call_sid}: {audio_path}")
+        log(f"🎧 Retrieved audio path from Redis for {call_sid}: {audio_path}")
         return audio_path
-    else:
-        logging.error(f"❌ No audio path found for {call_sid} in Redis/session_memory.")
-        return None
+
+    logging.error(f"❌ No audio path found for {call_sid} in Redis.")
+    return None
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
@@ -629,7 +637,7 @@ async def post5(request: Request):
     audio_path = None
     for _ in range(10):
         current_path = await get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session for {call_sid} → {current_path}")
+        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -774,7 +782,7 @@ async def greeting_rout(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = get_last_audio_for_call(call_sid)
+        current_path = await get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
