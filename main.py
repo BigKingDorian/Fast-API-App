@@ -73,7 +73,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
-# 🚫 Fail  if missing secrets
+# 🚫 Fail fast if missing secrets
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
@@ -84,121 +84,54 @@ if not ELEVENLABS_API_KEY:
 # 🧠 OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# 🧠 In-memory session (fallback / temporary)
+# 🧠 In-memory session
 session_memory = {}
-
 # 🧠 Redis client (for shared session state)
 REDIS_URL = os.getenv("REDIS_URL")
 
 redis_client = None
 if not REDIS_URL:
-    log("⚠️ REDIS_URL not set. Redis features are disabled. Falling back to in-memory session_memory only.")
+    log("⚠️ REDIS_URL not set. Redis features are disabled.")
 else:
     try:
-        # decode_responses=True → redis returns str, not bytes
         redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         log("✅ Redis client initialized from REDIS_URL")
     except Exception as e:
         log(f"❌ Failed to initialize Redis client: {e}")
         redis_client = None
 
-# ⚙️ FastAPI app  ⬅️ **THIS MUST BE BEFORE ANY @app.GET / @app.POST / @app.WEBSOCKET**
+# ⚙️ FastAPI app
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ---------- Redis session helpers ----------
-
-async def save_session_values(sid: str, **fields):
-    """
-    Save multiple key/value pairs for a given sid into Redis.
-    Falls back to session_memory if Redis is unavailable.
-    """
-    # Convert floats/ints to strings so Redis is happy
-    normalized = {
-        k: (str(v) if isinstance(v, (float, int)) else v)
-        for k, v in fields.items()
-        if v is not None
-    }
-
-    if not normalized:
-        return
-
-    if redis_client:
-        # HSET sid field1 value1 field2 value2 ...
-        await redis_client.hset(sid, mapping=normalized)
-    else:
-        # Fallback: local dict
-        session = session_memory.setdefault(sid, {})
-        session.update(normalized)
-
-
-async def get_session_value(sid: str, key: str):
-    """
-    Get one field for a sid from Redis (or fallback).
-    """
-    if redis_client:
-        return await redis_client.hget(sid, key)
-    else:
-        return session_memory.get(sid, {}).get(key)
-
-
-async def delete_session(sid: str):
-    if redis_client:
-        await redis_client.delete(sid)
-    else:
-        session_memory.pop(sid, None)
-
-
-async def get_full_session(sid: str):
-    """
-    Get the full session dict as plain Python dict[str, str].
-    """
-    if redis_client:
-        data = await redis_client.hgetall(sid)
-        # with decode_responses=True, keys and values are already str
-        return dict(data)
-    else:
-        return dict(session_memory.get(sid, {}))
-
-async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
-    """
-    Store transcript-related fields in Redis (or session_memory as fallback).
-    """
-    updates = {}
+def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
+    if call_sid not in session_memory:
+        session_memory[call_sid] = {}
 
     if user_transcript:
-        updates["user_transcript"] = user_transcript
-        updates["transcript_version"] = time.time()  # we'll stringify in helper
-        log(f"📝 save_transcript helper saved user_transcript for {call_sid}: {repr(user_transcript)}")
+        session_memory[call_sid]["user_transcript"] = user_transcript
+        session_memory[call_sid]["transcript_version"] = time.time()  # 👈 Add this line
+
+        # 🧪 Add log here to inspect the transcript
+        log(f"📝 save_transcript helper Saved user_transcript for {call_sid}: {repr(user_transcript)}")
     else:
-        log(f"⚠️ save_transcript helper called with no user_transcript for {call_sid}")
+        # Optional: log when nothing is saved
+        log(f"⚠️ save_transcript helper No user_transcript provided to save for {call_sid}")
 
     if gpt_response:
-        updates["gpt_response"] = gpt_response
-
+        session_memory[call_sid]["gpt_response"] = gpt_response
     if audio_path:
-        updates["audio_path"] = audio_path
+        session_memory[call_sid]["audio_path"] = audio_path
 
-    if updates:
-        await save_session_values(call_sid, **updates)
+def get_last_audio_for_call(call_sid):
+    data = session_memory.get(call_sid)
 
-async def get_last_audio_for_call(call_sid: str) -> str | None:
-    if not redis_client:
-        # fallback to in-memory if you're mixing both
-        data = session_memory.get(call_sid)
-        path = data.get("audio_path") if data else None
-        log(f"🎧 [fallback] audio_path from session_memory for {call_sid}: {path}")
-        return path
-
-    key = f"lotus:{call_sid}"
-    data = await redis_client.hgetall(key)  # returns dict of strings
-    audio_path = data.get("audio_path")
-    if audio_path:
-        log(f"🎧 Retrieved audio path from Redis for {call_sid}: {audio_path}")
-        return audio_path
-
-    logging.error(f"❌ No audio path found for {call_sid} in Redis.")
-    return None
+    if data and "audio_path" in data:
+        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
+        return data["audio_path"]
+    else:
+        logging.error(f"❌ No audio path found for {call_sid} in session memory.")
+        return None
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
@@ -636,13 +569,13 @@ async def post5(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = await get_last_audio_for_call(call_sid)
+        current_path = get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
         await asyncio.sleep(1)
-            
+
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
 
@@ -761,7 +694,7 @@ async def greeting_rout(request: Request):
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
+        save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -782,7 +715,7 @@ async def greeting_rout(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = await get_last_audio_for_call(call_sid)
+        current_path = get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
@@ -1462,4 +1395,4 @@ async def media_stream(ws: WebSocket):
             print(f"⚠️ Error closing WebSocket in finally: {e}")
 
         print("✅ Connection closed")
-        
+
