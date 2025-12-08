@@ -824,51 +824,26 @@ async def greeting_rout(request: Request):
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
-@app.get("/redis-test")
-async def redis_test():
-    """
-    Simple smoke test:
-      1) PING Redis
-      2) SET a test key with expiry
-      3) GET it back
-    """
+@app.get("/test_redis")
+async def test_redis():
     if redis_client is None:
-        log("⛔ /redis-test called but redis_client is None")
-        return {
-            "status": "error",
-            "detail": "Redis client not initialized. Check REDIS_URL / Fly secrets."
-        }
+        log("❌ Redis test failed: redis_client is None")
+        return {"status": "error", "detail": "redis_client is None"}
 
     try:
-        # 1) PING
         pong = await redis_client.ping()
         log(f"📡 Redis PING response: {pong}")
 
-        # 2) SET test key
-        test_key = f"lotus_redis_test:{uuid.uuid4().hex[:8]}"
-        test_value = "hello from Lotus via Redis"
-        await redis_client.set(test_key, test_value, ex=60)  # expire in 60s
-        log(f"📝 Redis SET {test_key} = {test_value!r} (TTL 60s)")
+        await redis_client.set("lotus:test", "hello from lotus")
+        log("📝 Redis SET: lotus:test='hello from lotus'")
 
-        # 3) GET it back
-        fetched = await redis_client.get(test_key)
-        log(f"📖 Redis GET {test_key} → {fetched!r}")
+        val = await redis_client.get("lotus:test")
+        log(f"📖 Redis GET: lotus:test='{val}'")
 
-        return {
-            "status": "ok",
-            "ping": pong,
-            "test_key": test_key,
-            "stored_value": test_value,
-            "fetched_value": fetched,
-            "match": fetched == test_value
-        }
-
+        return {"status": "ok", "ping": pong, "value": val}
     except Exception as e:
         log(f"❌ Redis test failed: {e}")
-        return {
-            "status": "error",
-            "detail": str(e)
-        }
+        return {"status": "error", "detail": str(e)}
 
 @app.websocket("/media")
 async def media_stream(ws: WebSocket):
