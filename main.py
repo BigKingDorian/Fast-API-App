@@ -104,6 +104,20 @@ else:
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+async def save_session_value(sid: str, key: str, value: str):
+    await redis_client.hset(sid, key, value)
+
+async def get_session_value(sid: str, key: str):
+    result = await redis_client.hget(sid, key)
+    return result.decode("utf-8") if result else None
+
+async def delete_session(sid: str):
+    await redis_client.delete(sid)
+
+async def get_full_session(sid: str):
+    result = await redis_client.hgetall(sid)
+    return {k.decode(): v.decode() for k, v in result.items()}
+
 def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     if call_sid not in session_memory:
         session_memory[call_sid] = {}
