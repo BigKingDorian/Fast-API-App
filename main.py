@@ -73,7 +73,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID")
 
-# 🚫 Fail fast if missing secrets
+# 🚫 Fail  if missing secrets
 if not DEEPGRAM_API_KEY:
     raise RuntimeError("Missing DEEPGRAM_API_KEY in environment")
 if not OPENAI_API_KEY:
@@ -102,6 +102,9 @@ else:
         log(f"❌ Failed to initialize Redis client: {e}")
         redis_client = None
 
+# ⚙️ FastAPI app  ⬅️ **THIS MUST BE BEFORE ANY @app.GET / @app.POST / @app.WEBSOCKET**
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ---------- Redis session helpers ----------
 
