@@ -624,13 +624,13 @@ async def post5(request: Request):
 
     # Try to retrieve the most recent converted file with retries
     audio_path = None
-        for _ in range(10):
-            current_path = await get_last_audio_for_call(call_sid)
-            log(f"🔁 Checking session for {call_sid} → {current_path}")
-            if current_path and os.path.exists(current_path):
-                audio_path = current_path
-                break
-            await asyncio.sleep(1)
+    for _ in range(10):
+        current_path = await get_last_audio_for_call(call_sid)
+        log(f"🔁 Checking session for {call_sid} → {current_path}")
+        if current_path and os.path.exists(current_path):
+            audio_path = current_path
+            break
+        await asyncio.sleep(1)
             
     if audio_path:
         ulaw_filename = os.path.basename(audio_path)
