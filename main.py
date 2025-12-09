@@ -164,15 +164,40 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
     for k, v in fields.items():
         session[k] = v
 
-def get_last_audio_for_call(call_sid):
+async def get_last_audio_for_call(call_sid: str):
+    """
+    Return the latest audio_path for this call from:
+    1) session_memory (fast, in-process cache)
+    2) Redis hash (fallback: key = call_sid, field = "audio_path")
+    """
+    # 1) Try local in-memory cache first
     data = session_memory.get(call_sid)
-
     if data and "audio_path" in data:
-        log(f"🎧 Retrieved audio path for {call_sid}: {data['audio_path']}")
+        log(f"🎧 Retrieved audio path for {call_sid} from session_memory: {data['audio_path']}")
         return data["audio_path"]
-    else:
-        logging.error(f"❌ No audio path found for {call_sid} in session memory.")
-        return None
+
+    # 2) Fallback to Redis
+    if redis_client is not None:
+        try:
+            start = time.perf_counter()
+            audio_path = await redis_client.hget(call_sid, "audio_path")
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+            log(f"⏱️ Redis hget audio_path for {call_sid} took {elapsed_ms:.2f} ms")
+
+            if audio_path:
+                log(f"🎧 Retrieved audio path for {call_sid} from Redis: {audio_path}")
+                # 🔁 Cache in session_memory for future quick access
+                session = session_memory.setdefault(call_sid, {})
+                session["audio_path"] = audio_path
+                return audio_path
+
+        except Exception as e:
+            log(f"❌ Redis hget failed in get_last_audio_for_call for {call_sid}: {e}")
+
+    # 3) Nothing found anywhere
+    logging.error(f"❌ No audio path found for {call_sid} in session_memory or Redis.")
+    return None
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
@@ -610,7 +635,7 @@ async def post5(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = get_last_audio_for_call(call_sid)
+        current_path = await get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
@@ -756,7 +781,7 @@ async def greeting_rout(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = get_last_audio_for_call(call_sid)
+        current_path = await get_last_audio_for_call(call_sid)
         log(f"🔁 Checking session memory for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
