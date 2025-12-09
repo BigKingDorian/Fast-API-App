@@ -137,15 +137,27 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
     if not fields:
         return
 
-    # ✅ Primary: write to Redis
+    # ✅ Primary: write to Redis, with timing
     if redis_client is not None:
         try:
+            start = time.perf_counter()
             # hset(key, mapping=dict) stores everything in one hash
             await redis_client.hset(call_sid, mapping=fields)
-            # Optional: set TTL for the whole session, e.g. 2 hours
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+            log(
+                f"⏱️ Redis hset for {call_sid} "
+                f"took {elapsed_ms:.2f} ms (fields={list(fields.keys())})"
+            )
+
+            # Optional TTL:
             # await redis_client.expire(call_sid, 7200)
+
         except Exception as e:
             log(f"❌ Redis hset failed for {call_sid}: {e}")
+
+    else:
+        log("⚠️ save_transcript called but redis_client is None; only local cache updated")
 
     # 🟡 Optional: keep local cache during migration
     session = session_memory.setdefault(call_sid, {})
