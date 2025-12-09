@@ -245,7 +245,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         return None
 
     if len(audio_bytes) > 2000:
-        await save_transcript(call_sid, user_transcript=full_transcript)
+        await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
@@ -723,7 +723,7 @@ async def greeting_rout(request: Request):
     
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
-        save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
+        await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
         print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -1149,7 +1149,9 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        save_transcript(sid, user_transcript=full_transcript)
+                                        loop.create_task(
+                                            save_transcript(sid, user_transcript=full_transcript)
+                                        )
 
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
                                         session_memory[sid]["user_response_processing"] = True
@@ -1424,3 +1426,4 @@ async def media_stream(ws: WebSocket):
             print(f"⚠️ Error closing WebSocket in finally: {e}")
 
         print("✅ Connection closed")
+        
