@@ -306,17 +306,49 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 
     return converted_path
     
-async def get_11labs_audio(call_sid):
-    if call_sid not in session_memory:
-        session_memory[call_sid] = {}
+async def get_11labs_audio(call_sid: str):
+    """
+    Use GPT output for this call_sid, generate ElevenLabs audio,
+    and save the relevant state in BOTH session_memory and Redis.
+    """
+    # 🔹 Ensure local session exists
+    session = session_memory.setdefault(call_sid, {})
 
-    # Reset GPT flags so next question works
-    session_memory[call_sid]["gpt_response_ready"] = False
-    session_memory[call_sid]["get_gpt_response_started"] = False
-    session_memory[call_sid]["user_transcript"] = None
+    # 🔹 Reset GPT-related flags (local cache)
+    session["gpt_response_ready"] = False
+    session["get_gpt_response_started"] = False
+    session["user_transcript"] = None
 
-    # ✅ Retrieve GPT output saved in get_gpt_response()
-    gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
+    # 🔹 Mirror those resets into Redis (optional but good for migration)
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "gpt_response_ready": "0",          # store as string/flag
+                    "get_gpt_response_started": "0",
+                    "user_transcript": "",
+                },
+            )
+        except Exception as e:
+            log(f"⚠️ Redis hset in get_11labs_audio failed for {call_sid}: {e}")
+
+    # 🔹 Retrieve GPT output
+    # 1) Prefer in-memory cache (where get_gpt_response currently writes)
+    gpt_text = session.get("gpt_text")
+
+    # 2) Fallback to Redis if not found in memory
+    if not gpt_text and redis_client is not None:
+        try:
+            # Try both possible keys: "gpt_text" (future) and "gpt_response" (from save_transcript)
+            redis_vals = await redis_client.hmget(call_sid, "gpt_text", "gpt_response")
+            gpt_text = redis_vals[0] or redis_vals[1]
+        except Exception as e:
+            log(f"⚠️ Redis hmget in get_11labs_audio failed for {call_sid}: {e}")
+
+    if not gpt_text:
+        gpt_text = "[Missing GPT Output]"
+
     print(f"🧠 GPT returned text: {gpt_text}")
 
     loop = asyncio.get_running_loop()
@@ -339,30 +371,47 @@ async def get_11labs_audio(call_sid):
     elevenlabs_response = await loop.run_in_executor(None, _call_elevenlabs)
 
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
-    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
-    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-          f"bytes {len(elevenlabs_response.content)}")
+    print(
+        f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+        f"bytes {len(elevenlabs_response.content)}"
+    )
 
     audio_bytes = elevenlabs_response.content
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
-    # Save everything needed for later use in /4
-    session_memory[call_sid]["unique_id"] = unique_id
-    session_memory[call_sid]["file_path"] = file_path
-    session_memory[call_sid]["audio_bytes"] = audio_bytes
-    session_memory[call_sid]["gpt_text"] = gpt_text   # also required later
+    # Save everything needed for later use in /4 (local cache)
+    session["unique_id"]  = unique_id
+    session["file_path"]  = file_path
+    session["audio_bytes"] = audio_bytes
+    session["gpt_text"]    = gpt_text  # keep for FFmpeg step etc.
 
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved original WAV → {file_path}")
 
-    session_memory[call_sid]["11labs_audio_ready"] = True
+    session["11labs_audio_ready"] = True
     print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+
+    # (Optional) mirror some of this into Redis too
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "unique_id": unique_id,
+                    "file_path": file_path,
+                    "gpt_text": gpt_text,
+                    "11labs_audio_ready": "1",
+                },
+            )
+        except Exception as e:
+            log(f"⚠️ Redis hset (11labs metadata) failed for {call_sid}: {e}")
 
     await asyncio.sleep(1)
 
