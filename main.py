@@ -783,17 +783,68 @@ async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    if not session_memory[call_sid].get("11labs_audio_fetch_started"):
-        session_memory[call_sid]["11labs_audio_fetch_started"] = True
+    def _to_bool(val):
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes"}
+
+    # --- 1️⃣ Check if 11labs_audio_fetch_started (Redis first, then local) ---
+    fetch_started = False
+
+    if redis_client is not None:
+        try:
+            started_raw = await redis_client.hget(call_sid, "11labs_audio_fetch_started")
+            fetch_started = _to_bool(started_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(11labs_audio_fetch_started) failed for {call_sid}: {e}")
+            fetch_started = bool(
+                session_memory.get(call_sid, {}).get("11labs_audio_fetch_started")
+            )
+    else:
+        fetch_started = bool(
+            session_memory.get(call_sid, {}).get("11labs_audio_fetch_started")
+        )
+
+    # If not started yet, flip flag (Redis + local) and spawn background task
+    if not fetch_started:
+        session = session_memory.setdefault(call_sid, {})
+        session["11labs_audio_fetch_started"] = True
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"11labs_audio_fetch_started": True}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write 11labs_audio_fetch_started for {call_sid}: {e}")
+
         asyncio.create_task(get_11labs_audio(call_sid))
         print("🚀 Started 11Labs task in background")
 
     vr = VoiceResponse()
 
-    if session_memory[call_sid].get("11labs_audio_ready"):
+    # --- 2️⃣ Check if 11labs_audio_ready (Redis first, then local) ---
+    audio_ready = False
+
+    if redis_client is not None:
+        try:
+            ready_raw = await redis_client.hget(call_sid, "11labs_audio_ready")
+            audio_ready = _to_bool(ready_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(11labs_audio_ready) failed for {call_sid}: {e}")
+            audio_ready = bool(
+                session_memory.get(call_sid, {}).get("11labs_audio_ready")
+            )
+    else:
+        audio_ready = bool(
+            session_memory.get(call_sid, {}).get("11labs_audio_ready")
+        )
+
+    if audio_ready:
         print("✅ 11 Labs audio is ready — redirecting to /4")
         vr.redirect("/4")
-        return Response(str(vr), media_type="application/xml")  # ✅ FIX
+        return Response(str(vr), media_type="application/xml")
     else:
         vr.redirect("/wait3")
         print("👋 Redirecting to /wait3")
