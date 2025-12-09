@@ -204,6 +204,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     os.makedirs(os.path.dirname(converted_path), exist_ok=True)
     loop = asyncio.get_running_loop()
 
+    # local per-call session cache (still useful even with Redis)
     session = session_memory.setdefault(call_sid, {})
 
     # 1) Run ffmpeg in a thread
@@ -264,7 +265,20 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
+
+        # 🔹 keep in local session_memory (used by your AI-speaking timing logic)
         session["audio_duration"] = duration
+
+        # 🔹 also persist to Redis for cross-instance visibility
+        if redis_client is not None:
+            try:
+                start_redis = time.perf_counter()
+                await redis_client.hset(call_sid, mapping={"audio_duration": duration})
+                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                log(f"⏱️ Redis hset audio_duration for {call_sid} took {elapsed_ms:.2f} ms")
+            except Exception as e:
+                log(f"❌ Redis hset audio_duration failed for {call_sid}: {e}")
+
     except subprocess.CalledProcessError as e:
         print("⚠️ Failed to measure audio duration with ffprobe:")
         try:
@@ -282,6 +296,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         return None
 
     if len(audio_bytes) > 2000:
+        # ✅ This will write audio_path + gpt_response to BOTH Redis and session_memory
         await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
