@@ -104,24 +104,53 @@ else:
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
-    if call_sid not in session_memory:
-        session_memory[call_sid] = {}
+# assumes:
+# redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+# and `log` + `session_memory` already exist
+
+async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
+    """
+    Save transcript-related fields for a call into Redis (and optionally local cache).
+    - call_sid: Redis key (one hash per call)
+    - user_transcript: latest user text
+    - audio_path: path to last audio file
+    - gpt_response: last GPT text response
+    """
+    fields = {}
 
     if user_transcript:
-        session_memory[call_sid]["user_transcript"] = user_transcript
-        session_memory[call_sid]["transcript_version"] = time.time()  # 👈 Add this line
+        ts = time.time()
+        fields["user_transcript"] = user_transcript
+        fields["transcript_version"] = ts
 
-        # 🧪 Add log here to inspect the transcript
-        log(f"📝 save_transcript helper Saved user_transcript for {call_sid}: {repr(user_transcript)}")
+        log(f"📝 save_transcript Saved user_transcript for {call_sid}: {repr(user_transcript)}")
     else:
-        # Optional: log when nothing is saved
-        log(f"⚠️ save_transcript helper No user_transcript provided to save for {call_sid}")
+        log(f"⚠️ save_transcript No user_transcript provided for {call_sid}")
 
     if gpt_response:
-        session_memory[call_sid]["gpt_response"] = gpt_response
+        fields["gpt_response"] = gpt_response
+
     if audio_path:
-        session_memory[call_sid]["audio_path"] = audio_path
+        fields["audio_path"] = audio_path
+
+    # 🔴 Nothing to write, just return
+    if not fields:
+        return
+
+    # ✅ Primary: write to Redis
+    if redis_client is not None:
+        try:
+            # hset(key, mapping=dict) stores everything in one hash
+            await redis_client.hset(call_sid, mapping=fields)
+            # Optional: set TTL for the whole session, e.g. 2 hours
+            # await redis_client.expire(call_sid, 7200)
+        except Exception as e:
+            log(f"❌ Redis hset failed for {call_sid}: {e}")
+
+    # 🟡 Optional: keep local cache during migration
+    session = session_memory.setdefault(call_sid, {})
+    for k, v in fields.items():
+        session[k] = v
 
 def get_last_audio_for_call(call_sid):
     data = session_memory.get(call_sid)
@@ -216,7 +245,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         return None
 
     if len(audio_bytes) > 2000:
-        save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
+        await save_transcript(call_sid, user_transcript=full_transcript)
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
