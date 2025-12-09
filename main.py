@@ -785,10 +785,20 @@ async def greeting_rout(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
+
+    # 🔍 Debug: show Redis session instead of raw session_memory keys
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        # Fallback debug while migrating
+        print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+
     # ── 2. 1 TIME GREETING ───────────────────────────────────────
-    gpt_text = "Hello my name is Lotus, how can I help you today?"        
+    gpt_text = "Hello my name is Lotus, how can I help you today?"
     print(f"✅ GPT greeting: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
@@ -804,15 +814,17 @@ async def greeting_rout(request: Request):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
         }
     )
-    
+
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
-    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
-    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-          f"bytes {len(elevenlabs_response.content)}")
+    print(
+        f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+        f"bytes {len(elevenlabs_response.content)}"
+    )
 
     audio_bytes = elevenlabs_response.content
     unique_id = uuid.uuid4().hex
@@ -830,8 +842,8 @@ async def greeting_rout(request: Request):
         print("🔁 GPT Text:", gpt_text)
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
-        return 
-        
+        return
+
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
     try:
@@ -842,7 +854,9 @@ async def greeting_rout(request: Request):
     except subprocess.CalledProcessError as e:
         print(f"❌ FFmpeg failed: {e}")
         return Response("Audio conversion failed", status_code=500)
+
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
         if os.path.isfile(converted_path):
@@ -852,6 +866,7 @@ async def greeting_rout(request: Request):
     else:
         print("❌ Converted file never appeared — aborting")
         return Response("Converted audio not available", status_code=500)
+
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
 
@@ -864,15 +879,25 @@ async def greeting_rout(request: Request):
             converted_path
         ]))
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
+
+        # 🔒 Store for later — keep both Redis + local cache during migration
+        session = session_memory.setdefault(call_sid, {})
+        session["audio_duration"] = duration
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping={"audio_duration": duration})
+            except Exception as e:
+                log(f"⚠️ Failed to write audio_duration to Redis for {call_sid}: {e}")
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
-    
+
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
         await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
-        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+        # Note: save_transcript already writes to Redis + session_memory
+        print(f"🧠 Session updated AFTER save (local cache): {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
@@ -892,8 +917,8 @@ async def greeting_rout(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = await get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        current_path = await get_last_audio_for_call(call_sid)  # ← already Redis-backed
+        log(f"🔁 Checking Redis/session for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -903,23 +928,42 @@ async def greeting_rout(request: Request):
         ulaw_filename = os.path.basename(audio_path)
 
         block_start_time = time.time()
-        session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
-        print(f"✅ Set block_start_time: {block_start_time}")
+        # Local cache
+        session = session_memory.setdefault(call_sid, {})
+        session["block_start_time"] = block_start_time
+        session["ai_is_speaking"] = True
+        session["user_response_processing"] = False
 
-        # Set ai_is_speaking flag to True right before the file is played in Greeting
-        session_memory[call_sid]["ai_is_speaking"] = True
-        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
+        print(f"✅ Set block_start_time: {block_start_time}")
+        print(
+            f"🚩 Flag set: ai_is_speaking = {session['ai_is_speaking']} "
+            f"for session {call_sid} at {time.time()}"
+        )
 
         logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
-        
+
+        # 🔁 Mirror flags into Redis
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={
+                        "block_start_time": block_start_time,
+                        "ai_is_speaking": True,
+                        "user_response_processing": False,
+                    }
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write greeting flags to Redis for {call_sid}: {e}")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print("🔗 Final playback URL:",
+              f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-        
+
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
