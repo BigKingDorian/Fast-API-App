@@ -689,27 +689,87 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # ✅ Retrieve transcript
-    gpt_input = session_memory[call_sid].get("user_transcript")
+    # --- 1️⃣ Load user_transcript from Redis (preferred), fallback to session_memory ---
+    gpt_input = None
+
+    if redis_client is not None:
+        try:
+            gpt_input = await redis_client.hget(call_sid, "user_transcript")
+        except Exception as e:
+            log(f"⚠️ Redis hget(user_transcript) failed for {call_sid}: {e}")
+
+    if gpt_input is None:
+        gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
 
     # ✅ If no transcript or unclear, just go back to WAIT2 loops
     if not gpt_input or len(gpt_input.strip()) < 4:
-        # No point starting GPT here — just keep waiting for speech
         vr = VoiceResponse()
         vr.redirect("/wait2")
         print("⚠️ No valid transcript — redirecting to /wait2")
         return Response(str(vr), media_type="application/xml")
 
+    # --- 2️⃣ Check / set get_gpt_response_started flag (Redis + local) ---
+    def _to_bool(val):
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes"}
+
+    gpt_started = False
+
+    if redis_client is not None:
+        try:
+            started_raw = await redis_client.hget(call_sid, "get_gpt_response_started")
+            gpt_started = _to_bool(started_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(get_gpt_response_started) failed for {call_sid}: {e}")
+            gpt_started = bool(
+                session_memory.get(call_sid, {}).get("get_gpt_response_started")
+            )
+    else:
+        gpt_started = bool(
+            session_memory.get(call_sid, {}).get("get_gpt_response_started")
+        )
+
     # ✅ If GPT isn’t started yet, start it **once**
-    if not session_memory[call_sid].get("get_gpt_response_started"):
-        session_memory[call_sid]["get_gpt_response_started"] = True
+    if not gpt_started:
+        # local cache
+        session = session_memory.setdefault(call_sid, {})
+        session["get_gpt_response_started"] = True
+
+        # Redis flag
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"get_gpt_response_started": True}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write get_gpt_response_started for {call_sid}: {e}")
+
         asyncio.create_task(get_gpt_response(call_sid))
         print("🚀 Started GPT task in background")
 
     vr = VoiceResponse()
 
+    # --- 3️⃣ Check gpt_response_ready (Redis first, then local) ---
+    gpt_ready = False
+
+    if redis_client is not None:
+        try:
+            ready_raw = await redis_client.hget(call_sid, "gpt_response_ready")
+            gpt_ready = _to_bool(ready_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(gpt_response_ready) failed for {call_sid}: {e}")
+            gpt_ready = bool(
+                session_memory.get(call_sid, {}).get("gpt_response_ready")
+            )
+    else:
+        gpt_ready = bool(
+            session_memory.get(call_sid, {}).get("gpt_response_ready")
+        )
+
     # ✅ If GPT finished, move to /3
-    if session_memory[call_sid].get("gpt_response_ready"):
+    if gpt_ready:
         print("✅ GPT response is ready — redirecting to /3")
         vr.redirect("/3")
     else:
