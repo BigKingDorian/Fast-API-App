@@ -926,79 +926,104 @@ async def greeting_rout(request: Request):
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait")
-async def greeting_rout(request: Request):
+async def wait_route(request: Request):
     print("\n📞 ── [POST] WAIT handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    # 🔁 Debug: show this call's Redis session instead of session_memory
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait2")
-async def greeting_rout(request: Request):
+async def wait2_route(request: Request):
     print("\n📞 ── [POST] WAIT2 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/2")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /2).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait3")
-async def greeting_rout(request: Request):
+async def wait3_route(request: Request):
     print("\n📞 ── [POST] WAIT3 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/3")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /3).")
     return Response(content=str(vr), media_type="application/xml")
-
+    
 @app.post("/wait4")
-async def greeting_rout(request: Request):
+async def wait4_route(request: Request):
     print("\n📞 ── [POST] WAIT4 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/4")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /4).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.get("/test_redis")
