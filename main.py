@@ -562,40 +562,100 @@ async def twilio_voice_webhook(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
-    # 🧠 Pull or initialize session for this call
-    session = session_memory.get(call_sid, {})
-    
+    # 🧠 Load session snapshot from Redis (preferred) + keep local cache for migration
+    session: dict = session_memory.get(call_sid, {}).copy()
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)  # returns dict[str,str]
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+            # Merge Redis values into local snapshot (strings are fine for flags)
+            session.update(redis_session)
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+
     # 🚦 Check if greeting has already been played
-    if not session.get("greeting_played"):
+    # Note: in Redis this may be stored as "True"/"1"/"yes" – treat any truthy as played
+    greeting_played_raw = session.get("greeting_played")
+    greeting_played = str(greeting_played_raw).lower() in {"1", "true", "yes"} if greeting_played_raw is not None else False
+
+    if not greeting_played:
+        # Mark as played (local + Redis)
         session["greeting_played"] = True
-        session_memory[call_sid] = session  # ✅ Important: persist the update
+        session_memory[call_sid] = session  # keep cache updated
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping={"greeting_played": True})
+            except Exception as e:
+                log(f"⚠️ Failed to write greeting_played to Redis for {call_sid}: {e}")
+
         vr = VoiceResponse()
         vr.redirect("/greeting")
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # Where the old await used to be
-    last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+    # 🧾 Fetch transcript-related fields primarily from Redis
+    user_transcript = None
+    transcript_version = 0.0
+    last_responded_version = 0.0
 
-    data = session_memory.get(call_sid, {})
-    user_transcript = data.get("user_transcript")
-    version = data.get("transcript_version", 0)
+    if redis_client is not None:
+        try:
+            user_transcript, tv_raw, lr_raw = await redis_client.hmget(
+                call_sid,
+                "user_transcript",
+                "transcript_version",
+                "last_responded_version",
+            )
 
-    # Fix: get the version we last responded to
-    last_responded_version = data.get("last_responded_version", 0)
+            # Convert numeric-ish fields
+            transcript_version = float(tv_raw) if tv_raw is not None else 0.0
+            last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
+        except Exception as e:
+            log(f"⚠️ Redis HMGET failed for {call_sid}: {e}")
+            # Fallback to local cache
+            data = session_memory.get(call_sid, {})
+            user_transcript = data.get("user_transcript")
+            transcript_version = data.get("transcript_version", 0.0) or 0.0
+            last_responded_version = data.get("last_responded_version", 0.0) or 0.0
+    else:
+        # Pure in-memory fallback
+        data = session_memory.get(call_sid, {})
+        user_transcript = data.get("user_transcript")
+        transcript_version = data.get("transcript_version", 0.0) or 0.0
+        last_responded_version = data.get("last_responded_version", 0.0) or 0.0
 
-    if user_transcript and version > last_responded_version:
+    # (This old var isn't used in logic anymore; you can delete if you want)
+    last_known_version = transcript_version
+
+    if user_transcript and transcript_version > last_responded_version:
         gpt_input = user_transcript
-        new_version = version
-        # Mark this version as responded to
-        session_memory[call_sid]["last_responded_version"] = new_version
+        new_version = transcript_version
+
+        # Mark this version as responded to (Redis + local)
+        session_memory.setdefault(call_sid, {})["last_responded_version"] = new_version
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"last_responded_version": new_version}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write last_responded_version to Redis for {call_sid}: {e}")
+
         print(f"✅ Transcript ready v{new_version}: {gpt_input!r}")
 
     elif user_transcript:  # user_transcript exists but version not newer
-        log(f"⛔ Skipped GPT input for {call_sid}: user_transcript={repr(user_transcript)}, "
-            f"version={version}, last_responded={last_responded_version}")
+        log(
+            f"⛔ Skipped GPT input for {call_sid}: "
+            f"user_transcript={repr(user_transcript)}, "
+            f"version={transcript_version}, last_responded={last_responded_version}"
+        )
         return Response(content="No new transcript yet", media_type="application/xml")
 
     else:  # truly no transcript — redirect
@@ -603,15 +663,27 @@ async def twilio_voice_webhook(request: Request):
         vr.redirect("/wait")
         print("⏳ No new transcript — redirecting to /wait")
         return Response(content=str(vr), media_type="application/xml")
-        
+
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
-    session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
+    now_ts = time.time()
+
+    # Store debug timestamp (local + Redis)
+    session_memory.setdefault(call_sid, {})["debug_gpt_input_logged_at"] = now_ts
+
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={"debug_gpt_input_logged_at": now_ts}
+            )
+        except Exception as e:
+            log(f"⚠️ Failed to write debug_gpt_input_logged_at to Redis for {call_sid}: {e}")
 
     vr = VoiceResponse()
     vr.redirect("/2")  # ✅ First redirect
     print("👋 Redirecting to /2")
     return Response(str(vr), media_type="application/xml")
-
+    
 @app.post("/2")
 async def post2(request: Request):
     form_data = await request.form()
