@@ -665,7 +665,14 @@ async def twilio_voice_webhook(request: Request):
             f"user_transcript={repr(user_transcript)}, "
             f"version={transcript_version}, last_responded={last_responded_version}"
         )
-        return Response(content="No new transcript yet", media_type="application/xml")
+
+        # 👇 ALWAYS return valid TwiML
+        vr = VoiceResponse()
+        vr.pause(length=1)
+        vr.redirect("/wait")  # or "/2" if you prefer, but keep it TwiML
+        print("⏳ No new transcript version — redirecting to /wait from /")
+        return Response(content=str(vr), media_type="application/xml")
+
 
     else:  # truly no transcript — redirect
         vr = VoiceResponse()
@@ -1627,145 +1634,134 @@ async def media_stream(ws: WebSocket):
             try:
                 print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
-                metadata = kwargs.get("metadata")
 
                 if result is None:
                     print("⚠️ No result received.")
                     return
 
-                print("📂 Type of result:", type(result))
+                if not hasattr(result, "to_dict"):
+                    print("⚠️ result has no to_dict() – skipping")
+                    return
 
-                if hasattr(result, "to_dict"):
-                    payload = result.to_dict()
-                    print(json.dumps(payload, indent=2))
+                payload = result.to_dict()
+                print(json.dumps(payload, indent=2))
 
-                    sid = call_sid_holder.get("sid")
-                    now = time.time()
-                    speech_final = payload.get("speech_final", False)
+                # Extract basics
+                alt = payload.get("channel", {}).get("alternatives", [{}])[0]
+                sentence = alt.get("transcript", "") or ""
+                confidence = alt.get("confidence", 0.0) or 0.0
+                is_final = payload.get("is_final", False)
+                speech_final = payload.get("speech_final", False)
 
-                    try:
-                        alt = payload["channel"]["alternatives"][0]
-                        sentence = alt.get("transcript", "")
-                        confidence = alt.get("confidence", 0.0)
-                        is_final = payload["is_final"] if "is_final" in payload else False
+                # Grab call SID
+                sid = call_sid_holder.get("sid")
+                if not sid:
+                    print("⚠️ No Call SID yet, skipping transcript")
+                    return
 
-                        state["is_final"] = is_final
-                        state["sentence"] = sentence
-                        state["confidence"] = confidence
-                        
-                        if is_final and sentence.strip() and confidence >= 0.6:
-                            print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
-                            session_memory[sid]["last_is_final_time"] = time.time()
+                # Ensure session dict exists
+                session = session_memory.setdefault(sid, {})
 
-                            last_input_time["ts"] = time.time()
-                            last_transcript["text"] = sentence
-                            last_transcript["confidence"] = confidence
-                            last_transcript["is_final"] = True
+                # Track final timestamps for watchdogs
+                if is_final:
+                    session["last_is_final_time"] = time.time()
+                    print(f"⏱️ last_is_final_time updated for {sid}")
 
-                            final_transcripts.append(sentence)
+                # We only care about final segments
+                if not is_final:
+                    return
 
-                            if speech_final:
-                                sid = call_sid_holder.get("sid")
-                                session_memory.setdefault(sid, {})
-                                print("🧠 speech_final received — concatenating full transcript")
-                                full_transcript = " ".join(final_transcripts)
-                                log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
+                if not sentence.strip():
+                    print("⚠️ Empty final transcript, skipping")
+                    return
 
-                                # STOP immediately if we already processed a final transcript this turn
-                                if session_memory[sid].get("user_response_processing"):
-                                    print(f"🚫 Ignoring transcript — already processing user response for {sid}")
-                                    return
+                if confidence < 0.6:
+                    print(f"⚠️ Final transcript too unclear (conf={confidence:.2f}): {sentence!r}")
+                    return
 
-                                if not full_transcript:
-                                    log(f"⚠️ Skipping save — full_transcript is empty")
-                                    return
+                print(f"✅ Final transcript received: {sentence!r} (confidence={confidence:.2f})")
 
-                                if call_sid_holder["sid"]:
-                                    sid = call_sid_holder["sid"]
-                                    session_memory.setdefault(sid, {})
+                # Update last_input_time / last_transcript / final_transcripts
+                last_input_time["ts"] = time.time()
+                last_transcript["text"] = sentence
+                last_transcript["confidence"] = confidence
+                last_transcript["is_final"] = True
+                final_transcripts.append(sentence)
 
-                                    # ... overwrite detection, etc. ...
+                # If this isn't speech_final, just keep collecting
+                if not speech_final:
+                    return
 
-                                    # flip ai_is_speaking off if block_start_time + audio_duration passed
-                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
-                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
-                                    if (
-                                        block_start_time is not None
-                                        and session_memory[sid].get("audio_duration") is not None
-                                        and time.time() > block_start_time + session_memory[sid]["audio_duration"]
-                                    ):
-                                        session_memory[sid]["ai_is_speaking"] = False
-                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
+                # ─────────────────────────────────────────────
+                # speech_final means "user is done this turn"
+                # ─────────────────────────────────────────────
+                full_transcript = " ".join(final_transcripts).strip()
+                print(f"🧠 speech_final received — full_transcript={full_transcript!r}")
 
-                                    # ✅ Main save gate
-                                    if (
-                                        session_memory[sid].get("ai_is_speaking") is False and
-                                        session_memory[sid].get("user_response_processing") is False
-                                    ):
-                                        # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
-                                        session_memory[sid]["close_requested"] = True
-                                        print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
+                if not full_transcript:
+                    print("⚠️ Full transcript after join is empty, skipping")
+                    final_transcripts.clear()
+                    last_transcript["text"] = ""
+                    last_transcript["confidence"] = 0.0
+                    last_transcript["is_final"] = False
+                    return
 
-                                        # ✅ Proceed with save
-                                        session_memory[sid]["user_transcript"] = full_transcript
-                                        session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = time.time()
+                # Initialize flags if missing
+                if "ai_is_speaking" not in session:
+                    session["ai_is_speaking"] = False
+                if "user_response_processing" not in session:
+                    session["user_response_processing"] = False
 
-                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        loop.create_task(
-                                            save_transcript(sid, user_transcript=full_transcript)
-                                        )
+                # Flip ai_is_speaking off if enough time passed since last playback
+                block_start_time = session.get("block_start_time")
+                audio_duration = session.get("audio_duration")
+                print(f"🧠 block_start_time={block_start_time}, audio_duration={audio_duration}")
 
-                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                        session_memory[sid]["user_response_processing"] = True
+                if block_start_time is not None and audio_duration is not None:
+                    if time.time() > block_start_time + audio_duration:
+                        session["ai_is_speaking"] = False
+                        print(f"🏁 [{sid}] AI finished speaking (time-based). Flag flipped OFF.")
 
-                                        # ✅ Clear after successful save
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
-                                    else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking or still processing previous turn")
+                # If we're still processing a previous turn, drop this one
+                if session.get("user_response_processing"):
+                    print(f"🚫 Already processing previous user input for {sid}, skipping new transcript")
+                    final_transcripts.clear()
+                    last_transcript["text"] = ""
+                    last_transcript["confidence"] = 0.0
+                    last_transcript["is_final"] = False
+                    return
 
-                                        # 🧹 Clear junk to avoid stale input
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
-                                        
-                        elif is_final:
-                            print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
+                # If AI is still speaking, ignore this turn
+                if session.get("ai_is_speaking"):
+                    print(f"🚫 AI is still speaking for {sid}, ignoring user transcript this turn")
+                    final_transcripts.clear()
+                    last_transcript["text"] = ""
+                    last_transcript["confidence"] = 0.0
+                    last_transcript["is_final"] = False
+                    return
 
-                    except KeyError as e:
-                        print(f"⚠️ Missing expected key in payload: {e}")
-                    except Exception as inner_e:
-                        print(f"⚠️ Could not extract transcript sentence: {inner_e}")
-            except Exception as e:  # ← This closes the OUTER try
+                # ✅ At this point we accept the transcript
+                session["close_requested"] = True
+                print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
+
+                session["user_transcript"] = full_transcript
+                session["ready"] = True
+                session["transcript_version"] = time.time()
+
+                log(f"✍️ [{sid}] user_transcript saved locally at {session['transcript_version']}")
+                loop.create_task(save_transcript(sid, user_transcript=full_transcript))
+
+                logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+                session["user_response_processing"] = True
+
+                # Clear buffers to avoid stale text
+                final_transcripts.clear()
+                last_transcript["text"] = ""
+                last_transcript["confidence"] = 0.0
+                last_transcript["is_final"] = False
+
+            except Exception as e:
                 print(f"⚠️ Error handling transcript: {e}")
-                
-        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda *args, **kwargs: print("🔴 Deepgram WebSocket closed")
-        )
-
-        options = LiveOptions(
-            model="nova-3",
-            language="en-US",
-            encoding="mulaw",
-            sample_rate=8000,
-            punctuate=True,
-        )
-        print("✏️ LiveOptions being sent:", options.__dict__)
-        dg_connection.start(options)
-        print("✅ Deepgram connection started")
-
-        # -------------------------------------------------
-        # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
-        # -------------------------------------------------
-        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
-        dg_connection.last_media_time = time.time()  # initialize timestamp
 
         async def deepgram_keepalive():
             counter = 0
