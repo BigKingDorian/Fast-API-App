@@ -1617,7 +1617,7 @@ async def media_stream(ws: WebSocket):
                 except Exception as e:
                     print(f"❌ Failed to reconnect Deepgram: {e}")
         
-        def on_transcript(*args, **kwargs):
+       def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
                 result = kwargs.get("result") or (args[0] if args else None)
@@ -1634,7 +1634,13 @@ async def media_stream(ws: WebSocket):
                     print(json.dumps(payload, indent=2))
 
                     sid = call_sid_holder.get("sid")
-                    now = time.time()
+                    if not sid:
+                        print("⚠️ Transcript event received but no sid in call_sid_holder yet.")
+                        return
+
+                    # 🔸 Local session (fast path)
+                    session = session_memory.setdefault(sid, {})
+
                     speech_final = payload.get("speech_final", False)
 
                     try:
@@ -1648,10 +1654,25 @@ async def media_stream(ws: WebSocket):
                         state["confidence"] = confidence
                         
                         if is_final and sentence.strip() and confidence >= 0.6:
+                            now = time.time()
                             print(f"✅ Final transcript received: \"{sentence}\" (confidence: {confidence})")
-                            session_memory[sid]["last_is_final_time"] = time.time()
 
-                            last_input_time["ts"] = time.time()
+                            # ⏱️ Track last_is_final_time locally
+                            session["last_is_final_time"] = now
+
+                            # ⏱️ Also mirror to Redis (best-effort)
+                            if redis_client is not None:
+                                async def _set_last_is_final_time(sid_, ts_):
+                                    try:
+                                        await redis_client.hset(
+                                            sid_,
+                                            mapping={"last_is_final_time": str(ts_)}
+                                        )
+                                    except Exception as e:
+                                        log(f"⚠️ Redis hset last_is_final_time failed for {sid_}: {e}")
+                                loop.create_task(_set_last_is_final_time(sid, now))
+
+                            last_input_time["ts"] = now
                             last_transcript["text"] = sentence
                             last_transcript["confidence"] = confidence
                             last_transcript["is_final"] = True
@@ -1659,74 +1680,105 @@ async def media_stream(ws: WebSocket):
                             final_transcripts.append(sentence)
 
                             if speech_final:
-                                sid = call_sid_holder.get("sid")
-                                session_memory.setdefault(sid, {})
                                 print("🧠 speech_final received — concatenating full transcript")
                                 full_transcript = " ".join(final_transcripts)
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
                                 # STOP immediately if we already processed a final transcript this turn
-                                if session_memory[sid].get("user_response_processing"):
+                                if session.get("user_response_processing"):
                                     print(f"🚫 Ignoring transcript — already processing user response for {sid}")
                                     return
 
                                 if not full_transcript:
-                                    log(f"⚠️ Skipping save — full_transcript is empty")
+                                    log("⚠️ Skipping save — full_transcript is empty")
                                     return
 
-                                if call_sid_holder["sid"]:
-                                    sid = call_sid_holder["sid"]
-                                    session_memory.setdefault(sid, {})
+                                # 🔎 Flip ai_is_speaking off if block_start_time + audio_duration passed
+                                block_start_time = session.get("block_start_time")
+                                audio_duration = session.get("audio_duration")
+                                print(f"🧠 Retrieved block_start_time: {block_start_time}")
 
-                                    # ... overwrite detection, etc. ...
+                                if (
+                                    block_start_time is not None
+                                    and audio_duration is not None
+                                    and time.time() > block_start_time + audio_duration
+                                ):
+                                    session["ai_is_speaking"] = False
+                                    log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    # flip ai_is_speaking off if block_start_time + audio_duration passed
-                                    block_start_time = session_memory.get(sid, {}).get("block_start_time")
-                                    print(f"🧠 Retrieved block_start_time: {block_start_time}")
-                                    if (
-                                        block_start_time is not None
-                                        and session_memory[sid].get("audio_duration") is not None
-                                        and time.time() > block_start_time + session_memory[sid]["audio_duration"]
-                                    ):
-                                        session_memory[sid]["ai_is_speaking"] = False
-                                        log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
+                                    # Mirror ai_is_speaking to Redis
+                                    if redis_client is not None:
+                                        async def _clear_ai_is_speaking(sid_):
+                                            try:
+                                                await redis_client.hset(
+                                                    sid_,
+                                                    mapping={"ai_is_speaking": "0"}
+                                                )
+                                            except Exception as e:
+                                                log(f"⚠️ Redis hset ai_is_speaking failed for {sid_}: {e}")
+                                        loop.create_task(_clear_ai_is_speaking(sid))
 
-                                    # ✅ Main save gate
-                                    if (
-                                        session_memory[sid].get("ai_is_speaking") is False and
-                                        session_memory[sid].get("user_response_processing") is False
-                                    ):
-                                        # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
-                                        session_memory[sid]["close_requested"] = True
-                                        print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
+                                # ✅ Main save gate
+                                if (
+                                    session.get("ai_is_speaking") is False
+                                    and session.get("user_response_processing") is False
+                                ):
+                                    # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
+                                    session["close_requested"] = True
+                                    print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
 
-                                        # ✅ Proceed with save
-                                        session_memory[sid]["user_transcript"] = full_transcript
-                                        session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = time.time()
+                                    # Proceed with save (local)
+                                    session["user_transcript"] = full_transcript
+                                    session["ready"] = True
+                                    ts = time.time()
+                                    session["transcript_version"] = ts
+                                    session["user_response_processing"] = True
 
-                                        log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
-                                        loop.create_task(
-                                            save_transcript(sid, user_transcript=full_transcript)
-                                        )
+                                    log(f"✍️ [{sid}] user_transcript saved at {ts}")
 
-                                        logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                        session_memory[sid]["user_response_processing"] = True
+                                    # Mirror flags + transcript_version to Redis
+                                    if redis_client is not None:
+                                        async def _set_main_flags(sid_, ts_):
+                                            try:
+                                                await redis_client.hset(
+                                                    sid_,
+                                                    mapping={
+                                                        "close_requested": "1",
+                                                        "ready": "1",
+                                                        "user_response_processing": "1",
+                                                        "transcript_version": str(ts_),
+                                                        # user_transcript itself is stored by save_transcript()
+                                                    },
+                                                )
+                                            except Exception as e:
+                                                log(f"⚠️ Redis hset main flags failed for {sid_}: {e}")
+                                        loop.create_task(_set_main_flags(sid, ts))
 
-                                        # ✅ Clear after successful save
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
-                                    else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking or still processing previous turn")
+                                    # 🔐 Persist transcript (includes Redis via save_transcript)
+                                    loop.create_task(
+                                        save_transcript(sid, user_transcript=full_transcript)
+                                    )
 
-                                        # 🧹 Clear junk to avoid stale input
-                                        final_transcripts.clear()
-                                        last_transcript["text"] = ""
-                                        last_transcript["confidence"] = 0.0
-                                        last_transcript["is_final"] = False
-                                        
+                                    logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
+
+                                    # ✅ Clear after successful save (local caches)
+                                    final_transcripts.clear()
+                                    last_transcript["text"] = ""
+                                    last_transcript["confidence"] = 0.0
+                                    last_transcript["is_final"] = False
+                                else:
+                                    log(
+                                        f"🚫 [{sid}] Save skipped — "
+                                        f"ai_is_speaking={session.get('ai_is_speaking')} "
+                                        f"user_response_processing={session.get('user_response_processing')}"
+                                    )
+
+                                    # 🧹 Clear junk to avoid stale input
+                                    final_transcripts.clear()
+                                    last_transcript["text"] = ""
+                                    last_transcript["confidence"] = 0.0
+                                    last_transcript["is_final"] = False
+                                    
                         elif is_final:
                             print(f"⚠️ Final transcript was too unclear: \"{sentence}\" (confidence: {confidence})")
 
@@ -1736,30 +1788,6 @@ async def media_stream(ws: WebSocket):
                         print(f"⚠️ Could not extract transcript sentence: {inner_e}")
             except Exception as e:  # ← This closes the OUTER try
                 print(f"⚠️ Error handling transcript: {e}")
-                
-        dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
-        dg_connection.on(LiveTranscriptionEvents.Error, lambda err: print(f"🔴 Deepgram error: {err}"))
-        dg_connection.on(
-            LiveTranscriptionEvents.Close,
-            lambda *args, **kwargs: print("🔴 Deepgram WebSocket closed")
-        )
-
-        options = LiveOptions(
-            model="nova-3",
-            language="en-US",
-            encoding="mulaw",
-            sample_rate=8000,
-            punctuate=True,
-        )
-        print("✏️ LiveOptions being sent:", options.__dict__)
-        dg_connection.start(options)
-        print("✅ Deepgram connection started")
-
-        # -------------------------------------------------
-        # 🟢 REAL Keep-Alive Loop — send SILENT MULAW audio
-        # -------------------------------------------------
-        SILENCE_FRAME = b"\xff" * 160  # correct mulaw silence (20ms @ 8kHz)
-        dg_connection.last_media_time = time.time()  # initialize timestamp
 
         async def deepgram_keepalive():
             counter = 0
