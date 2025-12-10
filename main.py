@@ -1528,19 +1528,52 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                session = session_memory.setdefault(sid, {})
-                if not session.get("zombie_detected"):
-                    continue  # nothing to do
+                # -----------------------------
+                # 🔍 Check zombie flag via Redis only
+                # -----------------------------
+                zombie_detected = False
+
+                if redis_client is not None:
+                    try:
+                        zflag = await redis_client.hget(sid, "zombie_detected")
+                        if zflag is not None:
+                            zombie_detected = str(zflag).lower() in ("1", "true", "yes")
+                    except Exception as e:
+                        log(f"⚠️ Redis hget failed for zombie_detected on {sid}: {e}")
+                        # If Redis is broken, we just skip this iteration
+                        continue
+                else:
+                    # No Redis available -> this reconnection logic does nothing
+                    continue
+
+                if not zombie_detected:
+                    # Redis says: "no zombie" -> nothing to do
+                    continue
 
                 print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
 
-                # Reset zombie flags for this sid
-                session["zombie_detected"] = False
-                session["warned"] = False
-                session["last_is_final_time"] = None
-
+                # ---------------------------------------
+                # 🧼 Clear flags in Redis (source of truth)
+                # ---------------------------------------
+                if redis_client is not None:
+                    try:
+                        await redis_client.hset(
+                            sid,
+                            mapping={
+                                "zombie_detected": "0",
+                                "warned": "0",
+                                "last_is_final_time": "",
+                            },
+                        )
+                        log(f"🧼 [Redis] Cleared zombie flags for {sid}")
+                    except Exception as e:
+                        log(f"⚠️ Redis hset failed clearing zombie flags for {sid}: {e}")
+                        # Even if we fail to clear, still attempt reconnect once
+                # ---------------------------------------
+                # 🔌 Close old connection and reconnect
+                # ---------------------------------------
                 try:
-                    # 🔌 Close old connection if present
+                    # Close old connection if present
                     try:
                         if dg_connection is not None:
                             print("🔌 Finishing old Deepgram connection before reconnect…")
@@ -1548,7 +1581,7 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"⚠️ Error finishing old Deepgram connection: {e}")
 
-                    # 🔁 Create a new connection just like at startup
+                    # Create a new connection just like at startup
                     live_client = deepgram.listen.live
                     new_conn = await asyncio.to_thread(live_client.v, "1")
 
@@ -1556,35 +1589,29 @@ async def media_stream(ws: WebSocket):
                     new_conn.on(LiveTranscriptionEvents.Transcript, on_transcript)
                     new_conn.on(
                         LiveTranscriptionEvents.Error,
-                        lambda err: print(f"🔴 Deepgram error (reconnected): {err}")
+                        lambda err: print(f"🔴 Deepgram error (reconnected): {err}"),
                     )
                     new_conn.on(
                         LiveTranscriptionEvents.Close,
-                        lambda: print("🔴 Deepgram WebSocket closed (reconnected)")
+                        lambda: print("🔴 Deepgram WebSocket closed (reconnected)"),
                     )
 
                     # Start streaming with the same options you used originally
-                    new_conn.start(options)
+                    new_conn.start(deepgram_options)
 
-                    # Swap global connection reference so keepalives use the new one
+                    # Swap connection reference so keepalives use the new one
                     dg_connection = new_conn
 
                     print("🔁 Deepgram reconnected successfully")
 
-                    # ⏪ Flush buffered audio so Deepgram "catches up"
-                    buffer = session.get("audio_buffer", None)
-                    if buffer:
-                        try:
-                            new_conn.send(bytes(buffer))
-                            print(f"⏪ Sent {len(buffer)} bytes of buffered audio after reconnect for {sid}")
-                            # Optional: reset buffer or keep a short tail
-                            session["audio_buffer"] = bytearray()
-                        except Exception as e:
-                            print(f"⚠️ Error sending buffered audio after reconnect: {e}")
+                    # NOTE: We are NOT using session or audio_buffer here anymore.
+                    # If you still want buffered audio flush, that has to live
+                    # somewhere other than session_memory, or you accept local use.
 
                 except Exception as e:
                     print(f"❌ Failed to reconnect Deepgram: {e}")
-                    
+
+        # schedule the task
         loop.create_task(deepgram_error_reconnection())
         
         def on_transcript(*args, **kwargs):
