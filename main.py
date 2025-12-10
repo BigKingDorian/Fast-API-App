@@ -1410,39 +1410,56 @@ async def media_stream(ws: WebSocket):
             await ws.close()
             return
 
-        async def deepgram_close_watchdog():
-            while True:
-                await asyncio.sleep(0.02)
-                sid = call_sid_holder.get("sid")
-                if not sid:
-                    continue
+    async def deepgram_close_watchdog():
+        while True:
+            await asyncio.sleep(0.02)
+            sid = call_sid_holder.get("sid")
+            if not sid:
+                continue
 
-                if session_memory.get(sid, {}).get("close_requested"):
-                    print(f"🛑 Closing Deepgram for {sid}")
+            # 🧠 Fast local check (do NOT hit Redis 50x/sec)
+            session = session_memory.setdefault(sid, {})
+            if not session.get("close_requested"):
+                continue
+
+            print(f"🛑 Closing Deepgram for {sid}")
+            try:
+                dg_connection.finish()
+            except Exception as e:
+                print(f"⚠️ Error closing Deepgram for {sid}: {e}")
+
+            if ws_state["closed"]:
+                print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
+
+                # 🔄 Optional: mirror clean_websocket_close flag to Redis for visibility
+                if redis_client is not None:
                     try:
-                        dg_connection.finish()
+                        await redis_client.hset(sid, mapping={"clean_websocket_close": True})
+                        log(f"🧼 [Redis] clean_websocket_close=True for {sid} (ws already closed)")
                     except Exception as e:
-                        print(f"⚠️ Error closing Deepgram for {sid}: {e}")
+                        log(f"⚠️ Redis hset failed for clean_websocket_close on {sid}: {e}")
+                return
 
-                    session = session_memory.setdefault(sid, {})
-                    if ws_state["closed"]:
-                        print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
-                        return
+            # ✅ Mark closed locally so `finally` block sees it
+            session["clean_websocket_close"] = True
+            ws_state["closed"] = True
+            print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
 
-                    # ✅ Mark closed *before* calling ws.close(), so finally sees it
-                    session["clean_websocket_close"] = True
-                    ws_state["closed"] = True
-                    print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
+            # 🔄 Mirror to Redis so other code can rely on it if needed
+            if redis_client is not None:
+                try:
+                    await redis_client.hset(sid, mapping={"clean_websocket_close": True})
+                    log(f"🧼 [Redis] clean_websocket_close=True for {sid} (deepgram_close_watchdog)")
+                except Exception as e:
+                    log(f"⚠️ Redis hset failed for clean_websocket_close on {sid}: {e}")
 
-                    try:
-                        print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
-                        await ws.close()
-                    except Exception as e:
-                        print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
+            try:
+                print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
+                await ws.close()
+            except Exception as e:
+                print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
 
-                    return
-                    
-        loop.create_task(deepgram_close_watchdog())
+            return
 
         async def deepgram_is_final_watchdog():
             while True:
