@@ -201,8 +201,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     os.makedirs(os.path.dirname(converted_path), exist_ok=True)
     loop = asyncio.get_running_loop()
 
-    # local per-call session cache (still useful even with Redis)
-    session = session_memory.setdefault(call_sid, {})
+    # ❌ removed session_memory: no local per-call dict anymore
 
     # 1) Run ffmpeg in a thread
     def _run_ffmpeg():
@@ -263,18 +262,18 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
 
-        # 🔹 keep in local session_memory (used by your AI-speaking timing logic)
-        session["audio_duration"] = duration
-
-        # 🔹 also persist to Redis for cross-instance visibility
+        # 🔹 persist duration to Redis for cross-instance visibility
         if redis_client is not None:
             try:
                 start_redis = time.perf_counter()
+                # use a hash keyed by call_sid
                 await redis_client.hset(call_sid, mapping={"audio_duration": duration})
                 elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
                 log(f"⏱️ Redis hset audio_duration for {call_sid} took {elapsed_ms:.2f} ms")
             except Exception as e:
                 log(f"❌ Redis hset audio_duration failed for {call_sid}: {e}")
+        else:
+            print("⚠️ redis_client is None; cannot store audio_duration in Redis.")
 
     except subprocess.CalledProcessError as e:
         print("⚠️ Failed to measure audio duration with ffprobe:")
@@ -284,22 +283,47 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
             pass
         duration = 0.0
 
-    # 4) Save transcript + flags
-    audio_bytes = session.get("audio_bytes")
-    gpt_text = session.get("gpt_text")
+    # 4) Load audio_bytes + gpt_text from Redis instead of session_memory
+    audio_bytes = None
+    gpt_text = None
+
+    if redis_client is not None:
+        try:
+            start_redis = time.perf_counter()
+            # Assuming these were written earlier to the same hash:
+            # await redis_client.hset(call_sid, mapping={"audio_bytes": some_bytes, "gpt_text": some_str})
+            audio_bytes, gpt_text = await redis_client.hmget(
+                call_sid,
+                "audio_bytes",
+                "gpt_text",
+            )
+            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+            log(f"⏱️ Redis hmget audio_bytes/gpt_text for {call_sid} took {elapsed_ms:.2f} ms")
+        except Exception as e:
+            log(f"❌ Redis hmget audio_bytes/gpt_text failed for {call_sid}: {e}")
+    else:
+        print("⚠️ redis_client is None; cannot load audio_bytes/gpt_text from Redis.")
 
     if not audio_bytes:
-        print("❌ audio_bytes missing in session_memory")
+        print("❌ audio_bytes missing in Redis for call_sid:", call_sid)
         return None
 
+    # audio_bytes from Redis will usually be bytes already; len() still works
     if len(audio_bytes) > 2000:
-        # ✅ This will write audio_path + gpt_response to BOTH Redis and session_memory
+        # ✅ This will write audio_path + gpt_response to BOTH Redis and whatever else save_transcript does
         await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
-    session["ffmpeg_audio_ready"] = True
-    print(f"🚩 Flag set: ffmpeg_audio_ready = True for session {call_sid}")
+    # 5) Set ffmpeg_audio_ready flag in Redis (no more session_memory)
+    if redis_client is not None:
+        try:
+            await redis_client.hset(call_sid, mapping={"ffmpeg_audio_ready": "1"})
+            print(f"🚩 Redis flag set: ffmpeg_audio_ready = 1 for {call_sid}")
+        except Exception as e:
+            log(f"❌ Redis hset ffmpeg_audio_ready failed for {call_sid}: {e}")
+    else:
+        print("⚠️ redis_client is None; cannot set ffmpeg_audio_ready flag in Redis.")
 
     return converted_path
     
