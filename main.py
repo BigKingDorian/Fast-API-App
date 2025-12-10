@@ -260,11 +260,14 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
 
-        # 🔹 persist duration to Redis for cross-instance visibility
+        # 🔹 Keep in local session_memory for your AI-speaking timing logic
+        session = session_memory.setdefault(call_sid, {})
+        session["audio_duration"] = duration
+
+        # 🔹 Also persist to Redis for cross-instance visibility
         if redis_client is not None:
             try:
                 start_redis = time.perf_counter()
-                # store as float (redis-py will serialize as string, which is fine)
                 await redis_client.hset(call_sid, mapping={"audio_duration": duration})
                 elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
                 log(f"⏱️ Redis hset audio_duration for {call_sid} took {elapsed_ms:.2f} ms")
@@ -282,7 +285,6 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         duration = 0.0
 
     # 4) Get audio_bytes + gpt_text from local session_memory
-    #    (get_11labs_audio already stored them there)
     session = session_memory.setdefault(call_sid, {})
     audio_bytes = session.get("audio_bytes")
     gpt_text = session.get("gpt_text")
@@ -312,7 +314,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         print("⚠️ redis_client is None; cannot set ffmpeg_audio_ready flag in Redis.")
 
     return converted_path
-    
+
 async def get_11labs_audio(call_sid: str):
     """
     Use GPT output for this call_sid, generate ElevenLabs audio,
@@ -596,7 +598,7 @@ async def twilio_voice_webhook(request: Request):
 
         if redis_client is not None:
             try:
-                await redis_client.hset(call_sid, mapping={"greeting_played": True})
+                await redis_client.hset(call_sid, mapping={"greeting_played": "1"})
             except Exception as e:
                 log(f"⚠️ Failed to write greeting_played to Redis for {call_sid}: {e}")
 
@@ -748,7 +750,7 @@ async def post2(request: Request):
             try:
                 await redis_client.hset(
                     call_sid,
-                    mapping={"get_gpt_response_started": True}
+                    mapping={"get_gpt_response_started": "1"}
                 )
             except Exception as e:
                 log(f"⚠️ Failed to write get_gpt_response_started for {call_sid}: {e}")
@@ -821,7 +823,7 @@ async def post3(request: Request):
             try:
                 await redis_client.hset(
                     call_sid,
-                    mapping={"11labs_audio_fetch_started": True}
+                    mapping={"11labs_audio_fetch_started": "1"}
                 )
             except Exception as e:
                 log(f"⚠️ Failed to write 11labs_audio_fetch_started for {call_sid}: {e}")
@@ -919,9 +921,9 @@ async def post4(request: Request):
                 await redis_client.hset(
                     call_sid,
                     mapping={
-                        "ffmpeg_audio_fetch_started": True,
-                        "11labs_audio_fetch_started": False,
-                        "11labs_audio_ready": False,
+                        "ffmpeg_audio_fetch_started": "1",
+                        "11labs_audio_fetch_started": "0",
+                        "11labs_audio_ready": "0",
                     },
                 )
             except Exception as e:
@@ -981,8 +983,8 @@ async def post5(request: Request):
             await redis_client.hset(
                 call_sid,
                 mapping={
-                    "ffmpeg_audio_ready": False,
-                    "ffmpeg_audio_fetch_started": False,
+                    "ffmpeg_audio_ready": "0",
+                    "ffmpeg_audio_fetch_started": "0",
                 },
             )
         except Exception as e:
@@ -1037,8 +1039,8 @@ async def post5(request: Request):
                     call_sid,
                     mapping={
                         "block_start_time": block_start_time,
-                        "ai_is_speaking": True,
-                        "user_response_processing": False,
+                        "ai_is_speaking": "1",
+                        "user_response_processing": "0",
                     },
                 )
             except Exception as e:
@@ -1229,8 +1231,8 @@ async def greeting_rout(request: Request):
                     call_sid,
                     mapping={
                         "block_start_time": block_start_time,
-                        "ai_is_speaking": True,
-                        "user_response_processing": False,
+                        "ai_is_speaking": "1",
+                        "user_response_processing": "0",
                     }
                 )
             except Exception as e:
