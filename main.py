@@ -166,37 +166,34 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
 
 async def get_last_audio_for_call(call_sid: str):
     """
-    Return the latest audio_path for this call from:
-    1) session_memory (fast, in-process cache)
-    2) Redis hash (fallback: key = call_sid, field = "audio_path")
+    Return the latest audio_path for this call from Redis.
+    - Redis key: call_sid
+    - Redis field: "audio_path"
     """
-    # 1) Try local in-memory cache first
-    data = session_memory.get(call_sid)
-    if data and "audio_path" in data:
-        log(f"🎧 Retrieved audio path for {call_sid} from session_memory: {data['audio_path']}")
-        return data["audio_path"]
+    if redis_client is None:
+        logging.error(
+            f"❌ get_last_audio_for_call: redis_client is None, "
+            f"cannot load audio_path for {call_sid}"
+        )
+        return None
 
-    # 2) Fallback to Redis
-    if redis_client is not None:
-        try:
-            start = time.perf_counter()
-            audio_path = await redis_client.hget(call_sid, "audio_path")
-            elapsed_ms = (time.perf_counter() - start) * 1000.0
+    try:
+        start = time.perf_counter()
+        audio_path = await redis_client.hget(call_sid, "audio_path")
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
 
-            log(f"⏱️ Redis hget audio_path for {call_sid} took {elapsed_ms:.2f} ms")
+        log(f"⏱️ Redis hget audio_path for {call_sid} took {elapsed_ms:.2f} ms")
 
-            if audio_path:
-                log(f"🎧 Retrieved audio path for {call_sid} from Redis: {audio_path}")
-                # 🔁 Cache in session_memory for future quick access
-                session = session_memory.setdefault(call_sid, {})
-                session["audio_path"] = audio_path
-                return audio_path
+        if audio_path:
+            log(f"🎧 Retrieved audio path for {call_sid} from Redis: {audio_path}")
+            return audio_path
 
-        except Exception as e:
-            log(f"❌ Redis hget failed in get_last_audio_for_call for {call_sid}: {e}")
+    except Exception as e:
+        log(f"❌ Redis hget failed in get_last_audio_for_call for {call_sid}: {e}")
 
-    # 3) Nothing found anywhere
-    logging.error(f"❌ No audio path found for {call_sid} in session_memory or Redis.")
+    logging.error(
+        f"❌ No audio path found for {call_sid} in Redis."
+    )
     return None
 
 async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
