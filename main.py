@@ -1621,8 +1621,8 @@ async def media_stream(ws: WebSocket):
                         except Exception as e:
                             print(f"⚠️ Error sending buffered audio after reconnect: {e}")
 
-                except Exception as e:
-                    print(f"❌ Failed to reconnect Deepgram: {e}")
+                    except Exception as e:
+                        print(f"❌ Failed to reconnect Deepgram: {e}")
         
        def on_transcript(*args, **kwargs):
             try:
