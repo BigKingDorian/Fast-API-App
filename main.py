@@ -1518,7 +1518,7 @@ async def media_stream(ws: WebSocket):
                 # make sure this is still inside the same `try:` as above
                 loop.create_task(deepgram_is_final_watchdog())
 
-        async def deepgram_error_reconnection():
+       async def deepgram_error_reconnection():
             nonlocal dg_connection  # so we can replace the shared connection
 
             while True:
@@ -1528,16 +1528,48 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
+                # ✅ Local session (fast path)
                 session = session_memory.setdefault(sid, {})
-                if not session.get("zombie_detected"):
+
+                # ✅ Check local zombie flag first
+                zombie_local = bool(session.get("zombie_detected"))
+
+                # ✅ Optionally also check Redis for zombie_detected
+                zombie_redis = False
+                if redis_client is not None:
+                    try:
+                        zflag = await redis_client.hget(sid, "zombie_detected")
+                        if zflag is not None:
+                            # treat "1", "true", "True" as True
+                            zombie_redis = str(zflag).lower() in ("1", "true", "yes")
+                    except Exception as e:
+                        log(f"⚠️ Redis hget failed for zombie_detected on {sid}: {e}")
+
+                # If neither local nor Redis says zombie, do nothing
+                if not (zombie_local or zombie_redis):
                     continue  # nothing to do
 
                 print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
 
-                # Reset zombie flags for this sid
+                # 🔄 Reset zombie flags for this sid (local)
                 session["zombie_detected"] = False
                 session["warned"] = False
                 session["last_is_final_time"] = None
+
+                # 🔄 Also clear them in Redis (best-effort)
+                if redis_client is not None:
+                    try:
+                        await redis_client.hset(
+                            sid,
+                            mapping={
+                                "zombie_detected": "0",
+                                "warned": "0",
+                                "last_is_final_time": "",
+                            },
+                        )
+                        log(f"🧼 [Redis] Cleared zombie flags for {sid}")
+                    except Exception as e:
+                        log(f"⚠️ Redis hset failed clearing zombie flags for {sid}: {e}")
 
                 try:
                     # 🔌 Close old connection if present
@@ -1584,8 +1616,6 @@ async def media_stream(ws: WebSocket):
 
                 except Exception as e:
                     print(f"❌ Failed to reconnect Deepgram: {e}")
-                    
-        loop.create_task(deepgram_error_reconnection())
         
         def on_transcript(*args, **kwargs):
             try:
