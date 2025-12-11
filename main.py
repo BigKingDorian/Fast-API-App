@@ -419,20 +419,19 @@ async def get_11labs_audio(call_sid: str):
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
 
-# ✅ GPT handler function
+# ✅ GPT handler function (Redis-only)
 async def get_gpt_response(call_sid: str) -> None:
+    if redis_client is None:
+        log("⚠️ get_gpt_response called but redis_client is None; aborting")
+        return
+
     try:
-        # 1) Read user_transcript – prefer Redis, fall back to session_memory
-        gpt_input = None
-
-        if redis_client is not None:
-            try:
-                gpt_input = await redis_client.hget(call_sid, "user_transcript")
-            except Exception as e:
-                log(f"⚠️ Redis hget failed in get_gpt_response for {call_sid}: {e}")
-
-        if gpt_input is None:
-            gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
+        # 1) Read user_transcript from Redis
+        try:
+            gpt_input = await redis_client.hget(call_sid, "user_transcript")
+        except Exception as e:
+            log(f"⚠️ Redis hget(user_transcript) failed in get_gpt_response for {call_sid}: {e}")
+            gpt_input = None
 
         safe_text = gpt_input.strip() if gpt_input else "Hello, how can I help you today?"
 
@@ -453,26 +452,20 @@ async def get_gpt_response(call_sid: str) -> None:
 
         gpt_text = response.choices[0].message.content or "[GPT returned empty message]"
 
-        # 3) Save to Redis
+        # 3) Save to Redis (source of truth)
         fields = {
             "gpt_text": gpt_text,
-            "gpt_response_ready": "1",   # strings in Redis
+            "gpt_response_ready": "1",   # store as string flag
         }
 
-        if redis_client is not None:
-            try:
-                await redis_client.hset(call_sid, mapping=fields)
-            except Exception as e:
-                log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
-
-        # 4) Also keep local cache in session_memory (during migration)
-        session = session_memory.setdefault(call_sid, {})
-        session["gpt_text"] = gpt_text
-        session["gpt_response_ready"] = True
-
-        print(f"🚩 Flag set: gpt_response_ready = True for session {call_sid}")
+        try:
+            await redis_client.hset(call_sid, mapping=fields)
+            log(f"🚩 Redis: gpt_response_ready=1 for {call_sid}")
+        except Exception as e:
+            log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
 
     except Exception as e:
+        # If OpenAI or anything above fails, write a fallback so /2 doesn't hang forever
         print(f"⚠️ GPT Error: {e}")
 
         fallback_text = "[GPT failed to respond]"
@@ -481,16 +474,11 @@ async def get_gpt_response(call_sid: str) -> None:
             "gpt_response_ready": "1",
         }
 
-        # Try to persist even on error so the POST route doesn't hang forever
-        if redis_client is not None:
-            try:
-                await redis_client.hset(call_sid, mapping=fields)
-            except Exception as e2:
-                log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
-
-        session = session_memory.setdefault(call_sid, {})
-        session["gpt_text"] = fallback_text
-        session["gpt_response_ready"] = True
+        try:
+            await redis_client.hset(call_sid, mapping=fields)
+            log(f"🚩 Redis: wrote fallback GPT text for {call_sid}")
+        except Exception as e2:
+            log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
 
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
