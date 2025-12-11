@@ -955,46 +955,30 @@ async def post5(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # 🔐 1) Build a merged session view (Redis → local)
-    session: dict = {}
+    # 🔐 Local session view (for non-Redis stuff like audio_bytes if needed)
+    session = session_memory.setdefault(call_sid, {})
 
-    if redis_client is not None:
-        try:
-            redis_data = await redis_client.hgetall(call_sid)
-            if redis_data:
-                session.update(redis_data)
-        except Exception as e:
-            log(f"⚠️ Redis hgetall failed for {call_sid} in /5: {e}")
-
-    # Merge in existing local session
-    local_session = session_memory.get(call_sid, {})
-    if local_session:
-        session.update(local_session)
-
-    # Ensure we have a session object in local cache
-    session = session_memory.setdefault(call_sid, session)
-
-    # 🔁 2) Reset FFmpeg flags locally
+    # 🔁 Reset FFmpeg flags locally
     session["ffmpeg_audio_ready"] = False
     print(f"🚩 Flag set: ffmpeg_audio_ready = False for session {call_sid}")
     
     session["ffmpeg_audio_fetch_started"] = False
     print(f"🚩 Flag set: ffmpeg_audio_fetch_started = False for session {call_sid}")
 
-    # 🔁 3) Also reset FFmpeg flags in Redis
+    # 🔁 Also reset FFmpeg flags in Redis
     if redis_client is not None:
         try:
             await redis_client.hset(
                 call_sid,
                 mapping={
-                    "ffmpeg_audio_ready": "0",
-                    "ffmpeg_audio_fetch_started": "0",
+                    "ffmpeg_audio_ready": False,
+                    "ffmpeg_audio_fetch_started": False,
                 },
             )
         except Exception as e:
             log(f"⚠️ Redis hset failed when resetting FFmpeg flags for {call_sid}: {e}")
 
-    # ── 4. BUILD TWIML ─────────────────────────────────────────────────────────
+    # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
 
     # Start Deepgram stream
@@ -1043,8 +1027,8 @@ async def post5(request: Request):
                     call_sid,
                     mapping={
                         "block_start_time": block_start_time,
-                        "ai_is_speaking": "1",
-                        "user_response_processing": "0",
+                        "ai_is_speaking": True,
+                        "user_response_processing": False,
                     },
                 )
             except Exception as e:
