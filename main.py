@@ -1685,11 +1685,8 @@ async def media_stream(ws: WebSocket):
                                         session_memory[sid]["ai_is_speaking"] = False
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
-                                    # ✅ Main save gate
-                                    if (
-                                        session_memory[sid].get("ai_is_speaking") is False and
-                                        session_memory[sid].get("user_response_processing") is False
-                                    ):
+                                    # ✅ Main save gate (simplified: only block if we're already processing a turn)
+                                    if not session_memory[sid].get("user_response_processing"):
                                         # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
                                         session_memory[sid]["close_requested"] = True
                                         print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
@@ -1701,7 +1698,7 @@ async def media_stream(ws: WebSocket):
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
                                         loop.create_task(
-                                            save_transcript(sid, user_transcript=full_transcript)
+                                        save_transcript(sid, user_transcript=full_transcript)
                                         )
 
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
@@ -1713,7 +1710,7 @@ async def media_stream(ws: WebSocket):
                                         last_transcript["confidence"] = 0.0
                                         last_transcript["is_final"] = False
                                     else:
-                                        log(f"🚫 [{sid}] Save skipped — AI still speaking or still processing previous turn")
+                                        log(f"🚫 [{sid}] Save skipped — already processing previous turn")
 
                                         # 🧹 Clear junk to avoid stale input
                                         final_transcripts.clear()
