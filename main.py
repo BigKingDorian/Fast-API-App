@@ -681,7 +681,7 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # --- 1️⃣ Load user_transcript from Redis (preferred), fallback to session_memory ---
+    # --- 1️⃣ Load user_transcript from Redis (preferred), and mirror into session_memory ---
     gpt_input = None
 
     if redis_client is not None:
@@ -690,8 +690,13 @@ async def post2(request: Request):
         except Exception as e:
             log(f"⚠️ Redis hget(user_transcript) failed for {call_sid}: {e}")
 
+    # Fallback to session_memory if Redis had nothing / error
     if gpt_input is None:
         gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
+    else:
+        # Mirror Redis value back into session_memory for this call
+        session = session_memory.setdefault(call_sid, {})
+        session["user_transcript"] = gpt_input
 
     # ✅ If no transcript or unclear, just go back to WAIT2 loops
     if not gpt_input or len(gpt_input.strip()) < 4:
@@ -728,12 +733,12 @@ async def post2(request: Request):
         session = session_memory.setdefault(call_sid, {})
         session["get_gpt_response_started"] = True
 
-        # Redis flag
+        # Redis flag (store as "1" so _to_bool works consistently)
         if redis_client is not None:
             try:
                 await redis_client.hset(
                     call_sid,
-                    mapping={"get_gpt_response_started": True}
+                    mapping={"get_gpt_response_started": "1"}
                 )
             except Exception as e:
                 log(f"⚠️ Failed to write get_gpt_response_started for {call_sid}: {e}")
