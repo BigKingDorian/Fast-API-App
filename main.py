@@ -1461,62 +1461,42 @@ async def media_stream(ws: WebSocket):
 
                 return
         
-                async def deepgram_is_final_watchdog():
-                    while True:
-                        await asyncio.sleep(0.02)
+        async def deepgram_is_final_watchdog():
+            while True:
+                await asyncio.sleep(0.02)
 
-                        sid = call_sid_holder.get("sid")
-                        if not sid:
-                            continue
+                sid = call_sid_holder.get("sid")
+                if not sid:
+                    continue
 
-                        # ✅ Ensure local session exists
-                        session = session_memory.setdefault(sid, {})
+                # make sure session exists
+                session = session_memory.setdefault(sid, {})
 
-                        # ✅ Initialize warned once per session
-                        if "warned" not in session:
-                            session["warned"] = False
+                # initialize warned once per session
+                if "warned" not in session:
+                    session["warned"] = False
 
-                        last_time = session.get("last_is_final_time")
-                        if not last_time:
-                            continue  # no is_final seen yet
+                last_time = session.get("last_is_final_time")
+                if not last_time:
+                    continue  # no is_final seen yet
 
-                        elapsed = time.time() - last_time
+                elapsed = time.time() - last_time
 
-                        if (
-                            elapsed > 2.5
-                            and not session["warned"]
-                            and session.get("close_requested") is False
-                            and session.get("ai_is_speaking") is False
-                            and session.get("user_response_processing") is False
-                        ):
-                            print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
-                            session["warned"] = True
-                            print(f"🚩 Flag set: warned = True for session {sid}")
+                if (
+                    elapsed > 2.5
+                    and not session["warned"]
+                    and session.get("close_requested") is False
+                    and session.get("ai_is_speaking") is False
+                    and session.get("user_response_processing") is False
+                ):
+                    
+                    print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
+                    session["warned"] = True
+                    print(f"🚩 Flag set: warned = True for session {sid}")
+                    session_memory[sid]["zombie_detected"] = True
+                    print(f"🧟 Detected Deepgram zombie stream for {sid}, reconnecting...")
 
-                            session["zombie_detected"] = True
-                            print(f"🧟 Detected Deepgram zombie stream for {sid}, reconnecting...")
-
-                            # 🔄 Mirror flags to Redis (best-effort, non-fatal)
-                            if redis_client is not None:
-                                try:
-                                    start = time.time()
-                                    await redis_client.hset(
-                                        sid,
-                                        mapping={
-                                            "warned": "1",
-                                            "zombie_detected": "1",
-                                            "last_is_final_time": str(last_time),
-                                        },
-                                    )
-                                    log(
-                                        f"⏱️ Redis hset (zombie flags) for {sid} "
-                                        f"took {(time.time() - start) * 1000:.2f} ms"
-                                    )
-                                except Exception as e:
-                                    log(f"⚠️ Redis hset failed for zombie flags on {sid}: {e}")
-
-                # make sure this is still inside the same `try:` as above
-                loop.create_task(deepgram_is_final_watchdog())
+        loop.create_task(deepgram_is_final_watchdog())
 
         async def deepgram_error_reconnection():
             nonlocal dg_connection  # so we can replace the shared connection
