@@ -204,6 +204,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     os.makedirs(os.path.dirname(converted_path), exist_ok=True)
     loop = asyncio.get_running_loop()
 
+    # local per-call session cache (still useful even with Redis)
     session = session_memory.setdefault(call_sid, {})
 
     # 1) Run ffmpeg in a thread
@@ -264,7 +265,20 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 
         duration = await loop.run_in_executor(None, _probe_duration)
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
+
+        # 🔹 keep in local session_memory (used by your AI-speaking timing logic)
         session["audio_duration"] = duration
+
+        # 🔹 also persist to Redis for cross-instance visibility
+        if redis_client is not None:
+            try:
+                start_redis = time.perf_counter()
+                await redis_client.hset(call_sid, mapping={"audio_duration": duration})
+                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                log(f"⏱️ Redis hset audio_duration for {call_sid} took {elapsed_ms:.2f} ms")
+            except Exception as e:
+                log(f"❌ Redis hset audio_duration failed for {call_sid}: {e}")
+
     except subprocess.CalledProcessError as e:
         print("⚠️ Failed to measure audio duration with ffprobe:")
         try:
@@ -282,6 +296,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
         return None
 
     if len(audio_bytes) > 2000:
+        # ✅ This will write audio_path + gpt_response to BOTH Redis and session_memory
         await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
@@ -291,17 +306,49 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 
     return converted_path
     
-async def get_11labs_audio(call_sid):
-    if call_sid not in session_memory:
-        session_memory[call_sid] = {}
+async def get_11labs_audio(call_sid: str):
+    """
+    Use GPT output for this call_sid, generate ElevenLabs audio,
+    and save the relevant state in BOTH session_memory and Redis.
+    """
+    # 🔹 Ensure local session exists
+    session = session_memory.setdefault(call_sid, {})
 
-    # Reset GPT flags so next question works
-    session_memory[call_sid]["gpt_response_ready"] = False
-    session_memory[call_sid]["get_gpt_response_started"] = False
-    session_memory[call_sid]["user_transcript"] = None
+    # 🔹 Reset GPT-related flags (local cache)
+    session["gpt_response_ready"] = False
+    session["get_gpt_response_started"] = False
+    session["user_transcript"] = None
 
-    # ✅ Retrieve GPT output saved in get_gpt_response()
-    gpt_text = session_memory[call_sid].get("gpt_text", "[Missing GPT Output]")
+    # 🔹 Mirror those resets into Redis (optional but good for migration)
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "gpt_response_ready": "0",          # store as string/flag
+                    "get_gpt_response_started": "0",
+                    "user_transcript": "",
+                },
+            )
+        except Exception as e:
+            log(f"⚠️ Redis hset in get_11labs_audio failed for {call_sid}: {e}")
+
+    # 🔹 Retrieve GPT output
+    # 1) Prefer in-memory cache (where get_gpt_response currently writes)
+    gpt_text = session.get("gpt_text")
+
+    # 2) Fallback to Redis if not found in memory
+    if not gpt_text and redis_client is not None:
+        try:
+            # Try both possible keys: "gpt_text" (future) and "gpt_response" (from save_transcript)
+            redis_vals = await redis_client.hmget(call_sid, "gpt_text", "gpt_response")
+            gpt_text = redis_vals[0] or redis_vals[1]
+        except Exception as e:
+            log(f"⚠️ Redis hmget in get_11labs_audio failed for {call_sid}: {e}")
+
+    if not gpt_text:
+        gpt_text = "[Missing GPT Output]"
+
     print(f"🧠 GPT returned text: {gpt_text}")
 
     loop = asyncio.get_running_loop()
@@ -324,30 +371,47 @@ async def get_11labs_audio(call_sid):
     elevenlabs_response = await loop.run_in_executor(None, _call_elevenlabs)
 
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
-    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
-    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-          f"bytes {len(elevenlabs_response.content)}")
+    print(
+        f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+        f"bytes {len(elevenlabs_response.content)}"
+    )
 
     audio_bytes = elevenlabs_response.content
     unique_id = uuid.uuid4().hex
     file_path = f"static/audio/response_{unique_id}.wav"
 
-    # Save everything needed for later use in /4
-    session_memory[call_sid]["unique_id"] = unique_id
-    session_memory[call_sid]["file_path"] = file_path
-    session_memory[call_sid]["audio_bytes"] = audio_bytes
-    session_memory[call_sid]["gpt_text"] = gpt_text   # also required later
+    # Save everything needed for later use in /4 (local cache)
+    session["unique_id"]  = unique_id
+    session["file_path"]  = file_path
+    session["audio_bytes"] = audio_bytes
+    session["gpt_text"]    = gpt_text  # keep for FFmpeg step etc.
 
     with open(file_path, "wb") as f:
         f.write(audio_bytes)
     print(f"💾 Saved original WAV → {file_path}")
 
-    session_memory[call_sid]["11labs_audio_ready"] = True
+    session["11labs_audio_ready"] = True
     print(f"🚩 Flag set: 11labs_audio_ready = True for session {call_sid}")
+
+    # (Optional) mirror some of this into Redis too
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "unique_id": unique_id,
+                    "file_path": file_path,
+                    "gpt_text": gpt_text,
+                    "11labs_audio_ready": "1",
+                },
+            )
+        except Exception as e:
+            log(f"⚠️ Redis hset (11labs metadata) failed for {call_sid}: {e}")
 
     await asyncio.sleep(1)
 
@@ -361,28 +425,75 @@ async def get_11labs_audio(call_sid):
 # ✅ GPT handler function
 async def get_gpt_response(call_sid: str) -> None:
     try:
-        gpt_input = session_memory[call_sid]["user_transcript"]
+        # 1) Read user_transcript – prefer Redis, fall back to session_memory
+        gpt_input = None
+
+        if redis_client is not None:
+            try:
+                gpt_input = await redis_client.hget(call_sid, "user_transcript")
+            except Exception as e:
+                log(f"⚠️ Redis hget failed in get_gpt_response for {call_sid}: {e}")
+
+        if gpt_input is None:
+            gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
+
         safe_text = gpt_input.strip() if gpt_input else "Hello, how can I help you today?"
 
+        # 2) Call OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a helpful AI assistant named Lotus. Keep your responses clear and concise."},
-                {"role": "user", "content": safe_text}
-            ]
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful AI assistant named Lotus. "
+                        "Keep your responses clear and concise."
+                    ),
+                },
+                {"role": "user", "content": safe_text},
+            ],
         )
 
         gpt_text = response.choices[0].message.content or "[GPT returned empty message]"
 
-        # ✅ Save to memory and flip the flag
-        session_memory[call_sid]["gpt_text"] = gpt_text
-        session_memory[call_sid]["gpt_response_ready"] = True
+        # 3) Save to Redis
+        fields = {
+            "gpt_text": gpt_text,
+            "gpt_response_ready": "1",   # strings in Redis
+        }
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping=fields)
+            except Exception as e:
+                log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
+
+        # 4) Also keep local cache in session_memory (during migration)
+        session = session_memory.setdefault(call_sid, {})
+        session["gpt_text"] = gpt_text
+        session["gpt_response_ready"] = True
+
         print(f"🚩 Flag set: gpt_response_ready = True for session {call_sid}")
 
     except Exception as e:
         print(f"⚠️ GPT Error: {e}")
-        session_memory[call_sid]["gpt_response_ready"] = True
-        session_memory[call_sid]["gpt_text"] = "[GPT failed to respond]"
+
+        fallback_text = "[GPT failed to respond]"
+        fields = {
+            "gpt_text": fallback_text,
+            "gpt_response_ready": "1",
+        }
+
+        # Try to persist even on error so the POST route doesn't hang forever
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping=fields)
+            except Exception as e2:
+                log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
+
+        session = session_memory.setdefault(call_sid, {})
+        session["gpt_text"] = fallback_text
+        session["gpt_response_ready"] = True
 
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
@@ -451,40 +562,100 @@ async def twilio_voice_webhook(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
 
-    # 🧠 Pull or initialize session for this call
-    session = session_memory.get(call_sid, {})
-    
+    # 🧠 Load session snapshot from Redis (preferred) + keep local cache for migration
+    session: dict = session_memory.get(call_sid, {}).copy()
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)  # returns dict[str,str]
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+            # Merge Redis values into local snapshot (strings are fine for flags)
+            session.update(redis_session)
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+
     # 🚦 Check if greeting has already been played
-    if not session.get("greeting_played"):
+    # Note: in Redis this may be stored as "True"/"1"/"yes" – treat any truthy as played
+    greeting_played_raw = session.get("greeting_played")
+    greeting_played = str(greeting_played_raw).lower() in {"1", "true", "yes"} if greeting_played_raw is not None else False
+
+    if not greeting_played:
+        # Mark as played (local + Redis)
         session["greeting_played"] = True
-        session_memory[call_sid] = session  # ✅ Important: persist the update
+        session_memory[call_sid] = session  # keep cache updated
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping={"greeting_played": True})
+            except Exception as e:
+                log(f"⚠️ Failed to write greeting_played to Redis for {call_sid}: {e}")
+
         vr = VoiceResponse()
         vr.redirect("/greeting")
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # Where the old await used to be
-    last_known_version = session_memory.get(call_sid, {}).get("transcript_version", 0)
+    # 🧾 Fetch transcript-related fields primarily from Redis
+    user_transcript = None
+    transcript_version = 0.0
+    last_responded_version = 0.0
 
-    data = session_memory.get(call_sid, {})
-    user_transcript = data.get("user_transcript")
-    version = data.get("transcript_version", 0)
+    if redis_client is not None:
+        try:
+            user_transcript, tv_raw, lr_raw = await redis_client.hmget(
+                call_sid,
+                "user_transcript",
+                "transcript_version",
+                "last_responded_version",
+            )
 
-    # Fix: get the version we last responded to
-    last_responded_version = data.get("last_responded_version", 0)
+            # Convert numeric-ish fields
+            transcript_version = float(tv_raw) if tv_raw is not None else 0.0
+            last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
+        except Exception as e:
+            log(f"⚠️ Redis HMGET failed for {call_sid}: {e}")
+            # Fallback to local cache
+            data = session_memory.get(call_sid, {})
+            user_transcript = data.get("user_transcript")
+            transcript_version = data.get("transcript_version", 0.0) or 0.0
+            last_responded_version = data.get("last_responded_version", 0.0) or 0.0
+    else:
+        # Pure in-memory fallback
+        data = session_memory.get(call_sid, {})
+        user_transcript = data.get("user_transcript")
+        transcript_version = data.get("transcript_version", 0.0) or 0.0
+        last_responded_version = data.get("last_responded_version", 0.0) or 0.0
 
-    if user_transcript and version > last_responded_version:
+    # (This old var isn't used in logic anymore; you can delete if you want)
+    last_known_version = transcript_version
+
+    if user_transcript and transcript_version > last_responded_version:
         gpt_input = user_transcript
-        new_version = version
-        # Mark this version as responded to
-        session_memory[call_sid]["last_responded_version"] = new_version
+        new_version = transcript_version
+
+        # Mark this version as responded to (Redis + local)
+        session_memory.setdefault(call_sid, {})["last_responded_version"] = new_version
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"last_responded_version": new_version}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write last_responded_version to Redis for {call_sid}: {e}")
+
         print(f"✅ Transcript ready v{new_version}: {gpt_input!r}")
 
     elif user_transcript:  # user_transcript exists but version not newer
-        log(f"⛔ Skipped GPT input for {call_sid}: user_transcript={repr(user_transcript)}, "
-            f"version={version}, last_responded={last_responded_version}")
+        log(
+            f"⛔ Skipped GPT input for {call_sid}: "
+            f"user_transcript={repr(user_transcript)}, "
+            f"version={transcript_version}, last_responded={last_responded_version}"
+        )
         return Response(content="No new transcript yet", media_type="application/xml")
 
     else:  # truly no transcript — redirect
@@ -492,41 +663,113 @@ async def twilio_voice_webhook(request: Request):
         vr.redirect("/wait")
         print("⏳ No new transcript — redirecting to /wait")
         return Response(content=str(vr), media_type="application/xml")
-        
+
     print(f"📝 GPT input candidate: \"{gpt_input}\"")
-    session_memory[call_sid]["debug_gpt_input_logged_at"] = time.time()
+    now_ts = time.time()
+
+    # Store debug timestamp (local + Redis)
+    session_memory.setdefault(call_sid, {})["debug_gpt_input_logged_at"] = now_ts
+
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={"debug_gpt_input_logged_at": now_ts}
+            )
+        except Exception as e:
+            log(f"⚠️ Failed to write debug_gpt_input_logged_at to Redis for {call_sid}: {e}")
 
     vr = VoiceResponse()
     vr.redirect("/2")  # ✅ First redirect
     print("👋 Redirecting to /2")
     return Response(str(vr), media_type="application/xml")
-
+    
 @app.post("/2")
 async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # ✅ Retrieve transcript
-    gpt_input = session_memory[call_sid].get("user_transcript")
+    # --- 1️⃣ Load user_transcript from Redis (preferred), fallback to session_memory ---
+    gpt_input = None
+
+    if redis_client is not None:
+        try:
+            gpt_input = await redis_client.hget(call_sid, "user_transcript")
+        except Exception as e:
+            log(f"⚠️ Redis hget(user_transcript) failed for {call_sid}: {e}")
+
+    if gpt_input is None:
+        gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
 
     # ✅ If no transcript or unclear, just go back to WAIT2 loops
     if not gpt_input or len(gpt_input.strip()) < 4:
-        # No point starting GPT here — just keep waiting for speech
         vr = VoiceResponse()
         vr.redirect("/wait2")
         print("⚠️ No valid transcript — redirecting to /wait2")
         return Response(str(vr), media_type="application/xml")
 
+    # --- 2️⃣ Check / set get_gpt_response_started flag (Redis + local) ---
+    def _to_bool(val):
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes"}
+
+    gpt_started = False
+
+    if redis_client is not None:
+        try:
+            started_raw = await redis_client.hget(call_sid, "get_gpt_response_started")
+            gpt_started = _to_bool(started_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(get_gpt_response_started) failed for {call_sid}: {e}")
+            gpt_started = bool(
+                session_memory.get(call_sid, {}).get("get_gpt_response_started")
+            )
+    else:
+        gpt_started = bool(
+            session_memory.get(call_sid, {}).get("get_gpt_response_started")
+        )
+
     # ✅ If GPT isn’t started yet, start it **once**
-    if not session_memory[call_sid].get("get_gpt_response_started"):
-        session_memory[call_sid]["get_gpt_response_started"] = True
+    if not gpt_started:
+        # local cache
+        session = session_memory.setdefault(call_sid, {})
+        session["get_gpt_response_started"] = True
+
+        # Redis flag
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"get_gpt_response_started": True}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write get_gpt_response_started for {call_sid}: {e}")
+
         asyncio.create_task(get_gpt_response(call_sid))
         print("🚀 Started GPT task in background")
 
     vr = VoiceResponse()
 
+    # --- 3️⃣ Check gpt_response_ready (Redis first, then local) ---
+    gpt_ready = False
+
+    if redis_client is not None:
+        try:
+            ready_raw = await redis_client.hget(call_sid, "gpt_response_ready")
+            gpt_ready = _to_bool(ready_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(gpt_response_ready) failed for {call_sid}: {e}")
+            gpt_ready = bool(
+                session_memory.get(call_sid, {}).get("gpt_response_ready")
+            )
+    else:
+        gpt_ready = bool(
+            session_memory.get(call_sid, {}).get("gpt_response_ready")
+        )
+
     # ✅ If GPT finished, move to /3
-    if session_memory[call_sid].get("gpt_response_ready"):
+    if gpt_ready:
         print("✅ GPT response is ready — redirecting to /3")
         vr.redirect("/3")
     else:
@@ -674,10 +917,20 @@ async def greeting_rout(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
+
+    # 🔍 Debug: show Redis session instead of raw session_memory keys
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        # Fallback debug while migrating
+        print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+
     # ── 2. 1 TIME GREETING ───────────────────────────────────────
-    gpt_text = "Hello my name is Lotus, how can I help you today?"        
+    gpt_text = "Hello my name is Lotus, how can I help you today?"
     print(f"✅ GPT greeting: \"{gpt_text}\"")
 
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS ──────────────────────────────────────
@@ -693,15 +946,17 @@ async def greeting_rout(request: Request):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
         }
     )
-    
+
     print("🧪 ElevenLabs status:", elevenlabs_response.status_code)
-    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type")) 
+    print("🧪 ElevenLabs content type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Status Code:", elevenlabs_response.status_code)
     print("🛰️ ElevenLabs Content-Type:", elevenlabs_response.headers.get("Content-Type"))
     print("🛰️ ElevenLabs Response Length:", len(elevenlabs_response.content), "bytes")
     print("🛰️ ElevenLabs Content (first 500 bytes):", elevenlabs_response.content[:500])
-    print(f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
-          f"bytes {len(elevenlabs_response.content)}")
+    print(
+        f"🎙️ ElevenLabs status {elevenlabs_response.status_code}, "
+        f"bytes {len(elevenlabs_response.content)}"
+    )
 
     audio_bytes = elevenlabs_response.content
     unique_id = uuid.uuid4().hex
@@ -719,8 +974,8 @@ async def greeting_rout(request: Request):
         print("🔁 GPT Text:", gpt_text)
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
-        return 
-        
+        return
+
     # ── 4. CONVERT TO μ-LAW 8 kHz ──────────────────────────────────────────────
     converted_path = f"static/audio/response_{unique_id}_ulaw.wav"
     try:
@@ -731,7 +986,9 @@ async def greeting_rout(request: Request):
     except subprocess.CalledProcessError as e:
         print(f"❌ FFmpeg failed: {e}")
         return Response("Audio conversion failed", status_code=500)
+
     print("🧭 Checking absolute path:", os.path.abspath(converted_path))
+
     # ✅ Wait for file to become available (race condition guard)
     for i in range(40):
         if os.path.isfile(converted_path):
@@ -741,6 +998,7 @@ async def greeting_rout(request: Request):
     else:
         print("❌ Converted file never appeared — aborting")
         return Response("Converted audio not available", status_code=500)
+
     print(f"🎛️ Converted WAV (8 kHz μ-law) → {converted_path}")
     log("✅ Audio file saved at %s", converted_path)
 
@@ -753,15 +1011,25 @@ async def greeting_rout(request: Request):
             converted_path
         ]))
         print(f"⏱️ Duration of audio file: {duration:.2f} seconds")
-        session_memory[call_sid]["audio_duration"] = duration  # 🔒 Store for later
+
+        # 🔒 Store for later — keep both Redis + local cache during migration
+        session = session_memory.setdefault(call_sid, {})
+        session["audio_duration"] = duration
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping={"audio_duration": duration})
+            except Exception as e:
+                log(f"⚠️ Failed to write audio_duration to Redis for {call_sid}: {e}")
     except Exception as e:
         print(f"⚠️ Failed to measure audio duration: {e}")
         duration = 0.0
-    
+
     # ✅ Only save if audio is a reasonable size (avoid silent/broken audio)
     if len(audio_bytes) > 2000:
         await save_transcript(call_sid, audio_path=converted_path, gpt_response=gpt_text)
-        print(f"🧠 Session updated AFTER save: {session_memory.get(call_sid)}")
+        # Note: save_transcript already writes to Redis + session_memory
+        print(f"🧠 Session updated AFTER save (local cache): {session_memory.get(call_sid)}")
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
@@ -781,8 +1049,8 @@ async def greeting_rout(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = await get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        current_path = await get_last_audio_for_call(call_sid)  # ← already Redis-backed
+        log(f"🔁 Checking Redis/session for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -792,102 +1060,146 @@ async def greeting_rout(request: Request):
         ulaw_filename = os.path.basename(audio_path)
 
         block_start_time = time.time()
-        session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
-        print(f"✅ Set block_start_time: {block_start_time}")
+        # Local cache
+        session = session_memory.setdefault(call_sid, {})
+        session["block_start_time"] = block_start_time
+        session["ai_is_speaking"] = True
+        session["user_response_processing"] = False
 
-        # Set ai_is_speaking flag to True right before the file is played in Greeting
-        session_memory[call_sid]["ai_is_speaking"] = True
-        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
+        print(f"✅ Set block_start_time: {block_start_time}")
+        print(
+            f"🚩 Flag set: ai_is_speaking = {session['ai_is_speaking']} "
+            f"for session {call_sid} at {time.time()}"
+        )
 
         logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
-        
+
+        # 🔁 Mirror flags into Redis
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={
+                        "block_start_time": block_start_time,
+                        "ai_is_speaking": True,
+                        "user_response_processing": False,
+                    }
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write greeting flags to Redis for {call_sid}: {e}")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print("🔗 Final playback URL:",
+              f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-        
+
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait")
-async def greeting_rout(request: Request):
+async def wait_route(request: Request):
     print("\n📞 ── [POST] WAIT handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    # 🔁 Debug: show this call's Redis session instead of session_memory
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait2")
-async def greeting_rout(request: Request):
+async def wait2_route(request: Request):
     print("\n📞 ── [POST] WAIT2 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/2")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /2).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.post("/wait3")
-async def greeting_rout(request: Request):
+async def wait3_route(request: Request):
     print("\n📞 ── [POST] WAIT3 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/3")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /3).")
     return Response(content=str(vr), media_type="application/xml")
-
+    
 @app.post("/wait4")
-async def greeting_rout(request: Request):
+async def wait4_route(request: Request):
     print("\n📞 ── [POST] WAIT4 handler hit ───────────────────────────────────")
     form_data = await request.form()
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
-    print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
-    
-    # Pause success Tested 9-25-25
+
+    if redis_client is not None:
+        try:
+            redis_session = await redis_client.hgetall(call_sid)
+            print(f"🧠 Redis session for {call_sid}: {redis_session}")
+        except Exception as e:
+            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
+    else:
+        print("⚠️ Redis disabled; cannot dump Redis session state.")
+
     vr = VoiceResponse()
     vr.pause(length=1)
     print("✅ Heartbeat sent: <Pause length='1'/>")
     await asyncio.sleep(1)
 
-    # ✅ Redirect to POST after /wait
     vr.redirect("/4")
-    print("📝 Returning TwiML to Twilio (with redirect).")
+    print("📝 Returning TwiML to Twilio (with redirect to /4).")
     return Response(content=str(vr), media_type="application/xml")
 
 @app.get("/test_redis")
