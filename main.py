@@ -1802,27 +1802,45 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-        
+
                 if (
                     elapsed > 2.0 and
                     last_transcript["confidence"] >= 0.5 and
                     last_transcript.get("is_final", False)
                 ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    print(
+                        f"✅ User finished speaking (elapsed: {elapsed:.1f}s, "
+                        f"confidence: {last_transcript['confidence']}"
+                    )
                     finished["done"] = True
-                    
+
                     print("⏳ Waiting for POST to handle GPT + TTS...")
+
+                    # We need the CallSid to look up audio_path in Redis
+                    sid = call_sid_holder.get("sid")
+                    if not sid:
+                        print("⚠️ No Call SID in call_sid_holder, cannot check audio_path")
+                        return
+
+                    # 🔁 Poll Redis (via get_last_audio_for_call) for up to 4 seconds
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
+                        try:
+                            audio_path = await get_last_audio_for_call(sid)
+                        except Exception as e:
+                            print(f"⚠️ Error calling get_last_audio_for_call({sid}): {e}")
+                            audio_path = None
+
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
+
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
-                        
+
+        # schedule it
         loop.create_task(monitor_user_done())
-        
+
         async def sender():
             send_counter = 0  # already there
             last_recv_log = 0.0  # already there
