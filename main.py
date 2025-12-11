@@ -419,20 +419,19 @@ async def get_11labs_audio(call_sid: str):
         print("🛑 Status:", elevenlabs_response.status_code)
         print("📜 Response:", elevenlabs_response.text)
 
-# ✅ GPT handler function
+# ✅ GPT handler function (Redis-only)
 async def get_gpt_response(call_sid: str) -> None:
+    if redis_client is None:
+        log("⚠️ get_gpt_response called but redis_client is None; aborting")
+        return
+
     try:
-        # 1) Read user_transcript – prefer Redis, fall back to session_memory
-        gpt_input = None
-
-        if redis_client is not None:
-            try:
-                gpt_input = await redis_client.hget(call_sid, "user_transcript")
-            except Exception as e:
-                log(f"⚠️ Redis hget failed in get_gpt_response for {call_sid}: {e}")
-
-        if gpt_input is None:
-            gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
+        # 1) Read user_transcript from Redis
+        try:
+            gpt_input = await redis_client.hget(call_sid, "user_transcript")
+        except Exception as e:
+            log(f"⚠️ Redis hget(user_transcript) failed in get_gpt_response for {call_sid}: {e}")
+            gpt_input = None
 
         safe_text = gpt_input.strip() if gpt_input else "Hello, how can I help you today?"
 
@@ -453,26 +452,20 @@ async def get_gpt_response(call_sid: str) -> None:
 
         gpt_text = response.choices[0].message.content or "[GPT returned empty message]"
 
-        # 3) Save to Redis
+        # 3) Save to Redis (source of truth)
         fields = {
             "gpt_text": gpt_text,
-            "gpt_response_ready": "1",   # strings in Redis
+            "gpt_response_ready": "1",   # store as string flag
         }
 
-        if redis_client is not None:
-            try:
-                await redis_client.hset(call_sid, mapping=fields)
-            except Exception as e:
-                log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
-
-        # 4) Also keep local cache in session_memory (during migration)
-        session = session_memory.setdefault(call_sid, {})
-        session["gpt_text"] = gpt_text
-        session["gpt_response_ready"] = True
-
-        print(f"🚩 Flag set: gpt_response_ready = True for session {call_sid}")
+        try:
+            await redis_client.hset(call_sid, mapping=fields)
+            log(f"🚩 Redis: gpt_response_ready=1 for {call_sid}")
+        except Exception as e:
+            log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
 
     except Exception as e:
+        # If OpenAI or anything above fails, write a fallback so /2 doesn't hang forever
         print(f"⚠️ GPT Error: {e}")
 
         fallback_text = "[GPT failed to respond]"
@@ -481,16 +474,11 @@ async def get_gpt_response(call_sid: str) -> None:
             "gpt_response_ready": "1",
         }
 
-        # Try to persist even on error so the POST route doesn't hang forever
-        if redis_client is not None:
-            try:
-                await redis_client.hset(call_sid, mapping=fields)
-            except Exception as e2:
-                log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
-
-        session = session_memory.setdefault(call_sid, {})
-        session["gpt_text"] = fallback_text
-        session["gpt_response_ready"] = True
+        try:
+            await redis_client.hset(call_sid, mapping=fields)
+            log(f"🚩 Redis: wrote fallback GPT text for {call_sid}")
+        except Exception as e2:
+            log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
 
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
@@ -560,94 +548,95 @@ async def twilio_voice_webhook(request: Request):
     call_sid = form_data.get("CallSid") or str(uuid.uuid4())
     print(f"🆔 Call SID: {call_sid}")
 
-    # 🧠 Load session snapshot from Redis (preferred) + keep local cache for migration
-    session: dict = session_memory.get(call_sid, {}).copy()
+    # If Redis isn't available, we can't do proper stateless routing
+    if redis_client is None:
+        log("⚠️ twilio_voice_webhook: redis_client is None; using simple fallback")
+        vr = VoiceResponse()
+        vr.redirect("/greeting")
+        return Response(str(vr), media_type="application/xml")
 
-    if redis_client is not None:
-        try:
-            redis_session = await redis_client.hgetall(call_sid)  # returns dict[str,str]
-            print(f"🧠 Redis session for {call_sid}: {redis_session}")
-            # Merge Redis values into local snapshot (strings are fine for flags)
-            session.update(redis_session)
-        except Exception as e:
-            print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
-    else:
-        print(f"🧠 Current session_memory keys: {list(session_memory.keys())}")
+    def _to_bool(val):
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes", "on"}
 
-    # 🚦 Check if greeting has already been played
-    # Note: in Redis this may be stored as "True"/"1"/"yes" – treat any truthy as played
-    greeting_played_raw = session.get("greeting_played")
-    greeting_played = str(greeting_played_raw).lower() in {"1", "true", "yes"} if greeting_played_raw is not None else False
+    # ─────────────────────────────────────────────
+    # 1) Check if greeting was already played
+    # ─────────────────────────────────────────────
+    try:
+        greeting_played_raw = await redis_client.hget(call_sid, "greeting_played")
+        greeting_played = _to_bool(greeting_played_raw)
+        print(f"👋 greeting_played_raw={greeting_played_raw}, interpreted={greeting_played}")
+    except Exception as e:
+        log(f"⚠️ Failed to read greeting_played from Redis for {call_sid}: {e}")
+        greeting_played = False
 
+    # First-time caller: mark greeting_played in Redis and redirect
     if not greeting_played:
-        # Mark as played (local + Redis)
-        session["greeting_played"] = True
-        session_memory[call_sid] = session  # keep cache updated
-
-        if redis_client is not None:
-            try:
-                await redis_client.hset(call_sid, mapping={"greeting_played": True})
-            except Exception as e:
-                log(f"⚠️ Failed to write greeting_played to Redis for {call_sid}: {e}")
+        try:
+            await redis_client.hset(call_sid, mapping={"greeting_played": "1"})
+            log(f"✅ Set greeting_played=1 for {call_sid} in Redis")
+        except Exception as e:
+            log(f"⚠️ Failed to write greeting_played to Redis for {call_sid}: {e}")
 
         vr = VoiceResponse()
         vr.redirect("/greeting")
         print("👋 First-time caller — redirecting to greeting handler.")
         return Response(content=str(vr), media_type="application/xml")
 
-    # 🧾 Fetch transcript-related fields primarily from Redis
+    # ─────────────────────────────────────────────
+    # 2) Fetch transcript-related fields from Redis
+    # ─────────────────────────────────────────────
     user_transcript = None
     transcript_version = 0.0
     last_responded_version = 0.0
 
-    if redis_client is not None:
-        try:
-            user_transcript, tv_raw, lr_raw = await redis_client.hmget(
-                call_sid,
-                "user_transcript",
-                "transcript_version",
-                "last_responded_version",
-            )
+    try:
+        user_transcript, tv_raw, lr_raw = await redis_client.hmget(
+            call_sid,
+            "user_transcript",
+            "transcript_version",
+            "last_responded_version",
+        )
 
-            # Convert numeric-ish fields
-            transcript_version = float(tv_raw) if tv_raw is not None else 0.0
-            last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
-        except Exception as e:
-            log(f"⚠️ Redis HMGET failed for {call_sid}: {e}")
-            # Fallback to local cache
-            data = session_memory.get(call_sid, {})
-            user_transcript = data.get("user_transcript")
-            transcript_version = data.get("transcript_version", 0.0) or 0.0
-            last_responded_version = data.get("last_responded_version", 0.0) or 0.0
-    else:
-        # Pure in-memory fallback
-        data = session_memory.get(call_sid, {})
-        user_transcript = data.get("user_transcript")
-        transcript_version = data.get("transcript_version", 0.0) or 0.0
-        last_responded_version = data.get("last_responded_version", 0.0) or 0.0
+        transcript_version = float(tv_raw) if tv_raw is not None else 0.0
+        last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
 
-    # (This old var isn't used in logic anymore; you can delete if you want)
-    last_known_version = transcript_version
+        print(
+            f"🧾 Redis transcript for {call_sid}: "
+            f"user_transcript={repr(user_transcript)}, "
+            f"transcript_version={transcript_version}, "
+            f"last_responded_version={last_responded_version}"
+        )
+    except Exception as e:
+        log(f"⚠️ Redis HMGET failed for {call_sid} in twilio_voice_webhook: {e}")
+        # If we can't read state safely, just send them to /wait
+        vr = VoiceResponse()
+        vr.redirect("/wait")
+        print("⚠️ Redis error reading transcript — redirecting to /wait")
+        return Response(content=str(vr), media_type="application/xml")
 
+    # ─────────────────────────────────────────────
+    # 3) Decide if this transcript is new/usable
+    # ─────────────────────────────────────────────
     if user_transcript and transcript_version > last_responded_version:
         gpt_input = user_transcript
         new_version = transcript_version
 
-        # Mark this version as responded to (Redis + local)
-        session_memory.setdefault(call_sid, {})["last_responded_version"] = new_version
-
-        if redis_client is not None:
-            try:
-                await redis_client.hset(
-                    call_sid,
-                    mapping={"last_responded_version": new_version}
-                )
-            except Exception as e:
-                log(f"⚠️ Failed to write last_responded_version to Redis for {call_sid}: {e}")
+        # Mark this version as responded to in Redis
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={"last_responded_version": new_version}
+            )
+            log(f"✅ Updated last_responded_version={new_version} for {call_sid} in Redis")
+        except Exception as e:
+            log(f"⚠️ Failed to write last_responded_version to Redis for {call_sid}: {e}")
 
         print(f"✅ Transcript ready v{new_version}: {gpt_input!r}")
 
-    elif user_transcript:  # user_transcript exists but version not newer
+    elif user_transcript:
+        # Transcript exists but we've already responded to this version
         log(
             f"⛔ Skipped GPT input for {call_sid}: "
             f"user_transcript={repr(user_transcript)}, "
@@ -655,29 +644,35 @@ async def twilio_voice_webhook(request: Request):
         )
         return Response(content="No new transcript yet", media_type="application/xml")
 
-    else:  # truly no transcript — redirect
+    else:
+        # Truly no transcript yet — keep Twilio alive and wait
         vr = VoiceResponse()
         vr.redirect("/wait")
         print("⏳ No new transcript — redirecting to /wait")
         return Response(content=str(vr), media_type="application/xml")
 
-    print(f"📝 GPT input candidate: \"{gpt_input}\"")
+    # ─────────────────────────────────────────────
+    # 4) Log debug timestamp only in Redis
+    # ─────────────────────────────────────────────
     now_ts = time.time()
+    try:
+        await redis_client.hset(
+            call_sid,
+            mapping={"debug_gpt_input_logged_at": now_ts}
+        )
+        log(
+            f"🕒 debug_gpt_input_logged_at={now_ts} "
+            f"written to Redis for {call_sid}"
+        )
+    except Exception as e:
+        log(f"⚠️ Failed to write debug_gpt_input_logged_at to Redis for {call_sid}: {e}")
 
-    # Store debug timestamp (local + Redis)
-    session_memory.setdefault(call_sid, {})["debug_gpt_input_logged_at"] = now_ts
-
-    if redis_client is not None:
-        try:
-            await redis_client.hset(
-                call_sid,
-                mapping={"debug_gpt_input_logged_at": now_ts}
-            )
-        except Exception as e:
-            log(f"⚠️ Failed to write debug_gpt_input_logged_at to Redis for {call_sid}: {e}")
-
+    # ─────────────────────────────────────────────
+    # 5) Kick off next phase (/2) via TwiML redirect
+    # ─────────────────────────────────────────────
+    print(f"📝 GPT input candidate: {gpt_input!r}")
     vr = VoiceResponse()
-    vr.redirect("/2")  # ✅ First redirect
+    vr.redirect("/2")  # First redirect in your flow
     print("👋 Redirecting to /2")
     return Response(str(vr), media_type="application/xml")
     
@@ -686,7 +681,7 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # --- 1️⃣ Load user_transcript from Redis (preferred), fallback to session_memory ---
+    # --- 1️⃣ Load user_transcript from Redis (preferred), and mirror into session_memory ---
     gpt_input = None
 
     if redis_client is not None:
@@ -695,8 +690,13 @@ async def post2(request: Request):
         except Exception as e:
             log(f"⚠️ Redis hget(user_transcript) failed for {call_sid}: {e}")
 
+    # Fallback to session_memory if Redis had nothing / error
     if gpt_input is None:
         gpt_input = session_memory.get(call_sid, {}).get("user_transcript")
+    else:
+        # Mirror Redis value back into session_memory for this call
+        session = session_memory.setdefault(call_sid, {})
+        session["user_transcript"] = gpt_input
 
     # ✅ If no transcript or unclear, just go back to WAIT2 loops
     if not gpt_input or len(gpt_input.strip()) < 4:
@@ -733,12 +733,12 @@ async def post2(request: Request):
         session = session_memory.setdefault(call_sid, {})
         session["get_gpt_response_started"] = True
 
-        # Redis flag
+        # Redis flag (store as "1" so _to_bool works consistently)
         if redis_client is not None:
             try:
                 await redis_client.hset(
                     call_sid,
-                    mapping={"get_gpt_response_started": True}
+                    mapping={"get_gpt_response_started": "1"}
                 )
             except Exception as e:
                 log(f"⚠️ Failed to write get_gpt_response_started for {call_sid}: {e}")
@@ -1804,27 +1804,45 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-        
+
                 if (
                     elapsed > 2.0 and
                     last_transcript["confidence"] >= 0.5 and
                     last_transcript.get("is_final", False)
                 ):
-                    print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
+                    print(
+                        f"✅ User finished speaking (elapsed: {elapsed:.1f}s, "
+                        f"confidence: {last_transcript['confidence']}"
+                    )
                     finished["done"] = True
-                    
+
                     print("⏳ Waiting for POST to handle GPT + TTS...")
+
+                    # We need the CallSid to look up audio_path in Redis
+                    sid = call_sid_holder.get("sid")
+                    if not sid:
+                        print("⚠️ No Call SID in call_sid_holder, cannot check audio_path")
+                        return
+
+                    # 🔁 Poll Redis (via get_last_audio_for_call) for up to 4 seconds
                     for _ in range(40):  # up to 4 seconds
-                        audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
+                        try:
+                            audio_path = await get_last_audio_for_call(sid)
+                        except Exception as e:
+                            print(f"⚠️ Error calling get_last_audio_for_call({sid}): {e}")
+                            audio_path = None
+
                         if audio_path and os.path.exists(audio_path):
                             print(f"✅ POST-generated audio is ready: {audio_path}")
                             break
+
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
-                        
+
+        # schedule it
         loop.create_task(monitor_user_done())
-        
+
         async def sender():
             send_counter = 0  # already there
             last_recv_log = 0.0  # already there
