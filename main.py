@@ -783,17 +783,68 @@ async def post3(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    if not session_memory[call_sid].get("11labs_audio_fetch_started"):
-        session_memory[call_sid]["11labs_audio_fetch_started"] = True
+    def _to_bool(val):
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes"}
+
+    # --- 1️⃣ Check if 11labs_audio_fetch_started (Redis first, then local) ---
+    fetch_started = False
+
+    if redis_client is not None:
+        try:
+            started_raw = await redis_client.hget(call_sid, "11labs_audio_fetch_started")
+            fetch_started = _to_bool(started_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(11labs_audio_fetch_started) failed for {call_sid}: {e}")
+            fetch_started = bool(
+                session_memory.get(call_sid, {}).get("11labs_audio_fetch_started")
+            )
+    else:
+        fetch_started = bool(
+            session_memory.get(call_sid, {}).get("11labs_audio_fetch_started")
+        )
+
+    # If not started yet, flip flag (Redis + local) and spawn background task
+    if not fetch_started:
+        session = session_memory.setdefault(call_sid, {})
+        session["11labs_audio_fetch_started"] = True
+
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={"11labs_audio_fetch_started": True}
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write 11labs_audio_fetch_started for {call_sid}: {e}")
+
         asyncio.create_task(get_11labs_audio(call_sid))
         print("🚀 Started 11Labs task in background")
 
     vr = VoiceResponse()
 
-    if session_memory[call_sid].get("11labs_audio_ready"):
+    # --- 2️⃣ Check if 11labs_audio_ready (Redis first, then local) ---
+    audio_ready = False
+
+    if redis_client is not None:
+        try:
+            ready_raw = await redis_client.hget(call_sid, "11labs_audio_ready")
+            audio_ready = _to_bool(ready_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(11labs_audio_ready) failed for {call_sid}: {e}")
+            audio_ready = bool(
+                session_memory.get(call_sid, {}).get("11labs_audio_ready")
+            )
+    else:
+        audio_ready = bool(
+            session_memory.get(call_sid, {}).get("11labs_audio_ready")
+        )
+
+    if audio_ready:
         print("✅ 11 Labs audio is ready — redirecting to /4")
         vr.redirect("/4")
-        return Response(str(vr), media_type="application/xml")  # ✅ FIX
+        return Response(str(vr), media_type="application/xml")
     else:
         vr.redirect("/wait3")
         print("👋 Redirecting to /wait3")
@@ -804,45 +855,96 @@ async def post4(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # 🔒 1) Make sure we actually have a session for this CallSid
-    session = session_memory.get(call_sid)
+    def _to_bool(val):
+        if isinstance(val, bool):
+            return val
+        if val is None:
+            return False
+        return str(val).lower() in {"1", "true", "yes", "on"}
+
+    # 🔒 1) Load session from Redis (then merge local session_memory)
+    session: dict = {}
+
+    if redis_client is not None:
+        try:
+            redis_data = await redis_client.hgetall(call_sid)
+            if redis_data:
+                session.update(redis_data)
+        except Exception as e:
+            log(f"⚠️ Redis hgetall failed for {call_sid} in /4: {e}")
+
+    # Merge in local (this can contain non-Redis stuff like audio_bytes)
+    local_session = session_memory.get(call_sid, {})
+    if local_session:
+        session.update(local_session)
+
+    # If still nothing, we really don't have state for this CallSid
     if not session:
-        print(f"❌ /4 hit but no session_memory entry for {call_sid}")
+        print(f"❌ /4 hit but no session found for {call_sid} (Redis + local empty)")
         vr = VoiceResponse()
         vr.say("Sorry, something went wrong. Let me reset.")
-        # You can choose where to send them: restart, or back to /3
         vr.redirect("/")   # or vr.redirect("/3")
         return Response(str(vr), media_type="application/xml")
 
-    # From here on, use `session` instead of indexing session_memory[call_sid]
+    # From here on, `session` is our merged view
     unique_id = session.get("unique_id")
     file_path = session.get("file_path")
 
     # 🔒 2) If ElevenLabs step never populated these, handle gracefully
     if not unique_id or not file_path:
-        print(f"❌ Missing unique_id or file_path in session_memory for {call_sid}")
+        print(f"❌ Missing unique_id or file_path for {call_sid}")
         vr = VoiceResponse()
-        # Option A: try to re-trigger the 11Labs step
-        vr.redirect("/3")
-        # Option B: apologize + hang up instead:
-        # vr.say("Sorry, there was a problem preparing your audio.")
-        # vr.hangup()
+        vr.redirect("/3")   # try to re-trigger 11Labs
         return Response(str(vr), media_type="application/xml")
 
     # 🔒 3) Kick off FFmpeg only once
-    if not session.get("ffmpeg_audio_fetch_started"):
-        session["ffmpeg_audio_fetch_started"] = True
+    ffmpeg_started = _to_bool(session.get("ffmpeg_audio_fetch_started"))
+    if not ffmpeg_started:
+        # Update local cache
+        local = session_memory.setdefault(call_sid, {})
+        local["ffmpeg_audio_fetch_started"] = True
+        local["11labs_audio_fetch_started"] = False
+        local["11labs_audio_ready"] = False
+
+        # Persist flags to Redis
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={
+                        "ffmpeg_audio_fetch_started": True,
+                        "11labs_audio_fetch_started": False,
+                        "11labs_audio_ready": False,
+                    },
+                )
+            except Exception as e:
+                log(f"⚠️ Failed to write FFmpeg/11Labs flags for {call_sid}: {e}")
+
+        # Start FFmpeg conversion in background
         asyncio.create_task(convert_audio_ulaw(call_sid, file_path, unique_id))
         print("🚀 Started FFmpeg task in background")
-        session["11labs_audio_fetch_started"] = False
-        print(f"🚩 Flag set: 11labs_audio_fetch_started = False for session {call_sid}")
-        session["11labs_audio_ready"] = False
-        print(f"🚩 Flag set: 11labs_audio_ready = False for session {call_sid}")
+        print(f"🚩 Flag set: 11labs_audio_fetch_started = False for {call_sid}")
+        print(f"🚩 Flag set: 11labs_audio_ready = False for {call_sid}")
 
     vr = VoiceResponse()
 
     # 🔒 4) Only redirect to /5 once FFmpeg says the audio is ready
-    if session.get("ffmpeg_audio_ready"):
+    ffmpeg_ready = False
+
+    # Prefer Redis for readiness flag
+    if redis_client is not None:
+        try:
+            ready_raw = await redis_client.hget(call_sid, "ffmpeg_audio_ready")
+            ffmpeg_ready = _to_bool(ready_raw)
+        except Exception as e:
+            log(f"⚠️ Redis hget(ffmpeg_audio_ready) failed for {call_sid}: {e}")
+
+    # Also OR with local in-memory flag (so existing convert_audio_ulaw logic still works)
+    ffmpeg_ready = ffmpeg_ready or bool(
+        session_memory.get(call_sid, {}).get("ffmpeg_audio_ready")
+    )
+
+    if ffmpeg_ready:
         print("✅ FFmpeg audio is ready — redirecting to /5")
         vr.redirect("/5")
     else:
@@ -856,11 +958,28 @@ async def post5(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    session_memory[call_sid]["ffmpeg_audio_ready"] = False
+    # 🔐 Local session view (for non-Redis stuff like audio_bytes if needed)
+    session = session_memory.setdefault(call_sid, {})
+
+    # 🔁 Reset FFmpeg flags locally
+    session["ffmpeg_audio_ready"] = False
     print(f"🚩 Flag set: ffmpeg_audio_ready = False for session {call_sid}")
     
-    session_memory[call_sid]["ffmpeg_audio_fetch_started"] = False
+    session["ffmpeg_audio_fetch_started"] = False
     print(f"🚩 Flag set: ffmpeg_audio_fetch_started = False for session {call_sid}")
+
+    # 🔁 Also reset FFmpeg flags in Redis
+    if redis_client is not None:
+        try:
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "ffmpeg_audio_ready": False,
+                    "ffmpeg_audio_fetch_started": False,
+                },
+            )
+        except Exception as e:
+            log(f"⚠️ Redis hset failed when resetting FFmpeg flags for {call_sid}: {e}")
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
     vr = VoiceResponse()
@@ -878,8 +997,8 @@ async def post5(request: Request):
     # Try to retrieve the most recent converted file with retries
     audio_path = None
     for _ in range(10):
-        current_path = await get_last_audio_for_call(call_sid)
-        log(f"🔁 Checking session memory for {call_sid} → {current_path}")
+        current_path = await get_last_audio_for_call(call_sid)  # ← now Redis-aware
+        log(f"🔁 Checking session store for {call_sid} → {current_path}")
         if current_path and os.path.exists(current_path):
             audio_path = current_path
             break
@@ -889,18 +1008,40 @@ async def post5(request: Request):
         ulaw_filename = os.path.basename(audio_path)
 
         block_start_time = time.time()
-        session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
+        session["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
 
         # Set ai_is_speaking flag to True right before the file is played in POST
-        session_memory[call_sid]["ai_is_speaking"] = True
-        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
+        session["ai_is_speaking"] = True
+        print(
+            f"🚩 Flag set: ai_is_speaking = {session['ai_is_speaking']} "
+            f"for session {call_sid} at {time.time()}"
+        )
 
-        logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
-        
+        logger.info(
+            f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}"
+        )
+        session["user_response_processing"] = False
+
+        # 🔁 Persist these flags & timestamp to Redis as well
+        if redis_client is not None:
+            try:
+                await redis_client.hset(
+                    call_sid,
+                    mapping={
+                        "block_start_time": block_start_time,
+                        "ai_is_speaking": True,
+                        "user_response_processing": False,
+                    },
+                )
+            except Exception as e:
+                log(f"⚠️ Redis hset failed when setting flags in /5 for {call_sid}: {e}")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
-        print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        print(
+            "🔗 Final playback URL:",
+            f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}",
+        )
         print(f"✅ Queued audio for playback: {ulaw_filename}")
     else:
         print("❌ Audio not found after retry loop")
@@ -910,7 +1051,7 @@ async def post5(request: Request):
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
-
+    
 @app.post("/greeting")
 async def greeting_rout(request: Request):
     print("\n📞 ── [POST] Greeting handler hit ───────────────────────────────────")
@@ -1276,33 +1417,50 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                if session_memory.get(sid, {}).get("close_requested"):
-                    print(f"🛑 Closing Deepgram for {sid}")
-                    try:
-                        dg_connection.finish()
-                    except Exception as e:
-                        print(f"⚠️ Error closing Deepgram for {sid}: {e}")
+                # 🔍 Original logic: check local session_memory
+                session = session_memory.setdefault(sid, {})
+                if not session.get("close_requested"):
+                    continue
 
-                    session = session_memory.setdefault(sid, {})
-                    if ws_state["closed"]:
-                        print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
-                        return
+                print(f"🛑 Closing Deepgram for {sid}")
+                try:
+                    dg_connection.finish()
+                except Exception as e:
+                    print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
-                    # ✅ Mark closed *before* calling ws.close(), so finally sees it
-                    session["clean_websocket_close"] = True
-                    ws_state["closed"] = True
-                    print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
+                if ws_state["closed"]:
+                    print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
 
-                    try:
-                        print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
-                        await ws.close()
-                    except Exception as e:
-                        print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
-
+                    # Optional: still mirror clean_websocket_close to Redis
+                    if redis_client is not None:
+                        try:
+                            await redis_client.hset(sid, mapping={"clean_websocket_close": "1"})
+                            log(f"🧼 [Redis] clean_websocket_close=True for {sid} (ws already closed)")
+                        except Exception as e:
+                            log(f"⚠️ Redis hset failed for clean_websocket_close on {sid}: {e}")
                     return
-                    
-        loop.create_task(deepgram_close_watchdog())
 
+                # ✅ Mark closed locally so other tasks see it
+                session["clean_websocket_close"] = True
+                ws_state["closed"] = True
+                print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
+
+                # ✅ Mirror to Redis (non-fatal if this fails)
+                if redis_client is not None:
+                    try:
+                        await redis_client.hset(sid, mapping={"clean_websocket_close": "1"})
+                        log(f"🧼 [Redis] clean_websocket_close=True for {sid}")
+                    except Exception as e:
+                        log(f"⚠️ Redis hset failed for clean_websocket_close on {sid}: {e}")
+
+                try:
+                    print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
+                    await ws.close()
+                except Exception as e:
+                    print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
+
+                return
+        
         async def deepgram_is_final_watchdog():
             while True:
                 await asyncio.sleep(0.02)
