@@ -1400,7 +1400,19 @@ async def media_stream(ws: WebSocket):
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
                     session["warned"] = True
                     print(f"🚩 Flag set: warned = True for session {sid}")
-                    session_memory[sid]["zombie_detected"] = True
+
+                    # ✅ Redis-only write (do NOT write zombie_detected to session_memory)
+                    if redis_client is not None:
+                        try:
+                            start_redis = time.perf_counter()
+                            await redis_client.hset(sid, mapping={"zombie_detected": json.dumps(True)})
+                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                            log(f"🧟 Redis flag set: zombie_detected=True for {sid} ({elapsed_ms:.2f} ms)")
+                        except Exception as e:
+                            log(f"❌ Redis hset zombie_detected failed for {sid}: {e}")
+                    else:
+                        log("⚠️ redis_client is None — zombie_detected flag was NOT set")
+
                     print(f"🧟 Detected Deepgram zombie stream for {sid}, reconnecting...")
 
         loop.create_task(deepgram_is_final_watchdog())
@@ -1416,13 +1428,39 @@ async def media_stream(ws: WebSocket):
                     continue
 
                 session = session_memory.setdefault(sid, {})
-                if not session.get("zombie_detected"):
+
+                # ✅ Redis-only read for zombie_detected (do NOT read from session_memory)
+                zombie_detected = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "zombie_detected")
+                        if raw is not None:
+                            if isinstance(raw, (bytes, bytearray)):
+                                raw = raw.decode("utf-8", errors="ignore")
+                            zombie_detected = bool(json.loads(raw))
+                    except Exception as e:
+                        log(f"❌ Redis hget zombie_detected failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — treating zombie_detected as False")
+
+                if not zombie_detected:
                     continue  # nothing to do
 
                 print(f"💀 Zombie detected for sid={sid} — reconnecting Deepgram")
 
-                # Reset zombie flags for this sid
-                session["zombie_detected"] = False
+                # ✅ Reset zombie_detected via Redis ONLY
+                if redis_client is not None:
+                    try:
+                        start_redis = time.perf_counter()
+                        await redis_client.hset(sid, mapping={"zombie_detected": json.dumps(False)})
+                        elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                        log(f"🧟 Redis flag reset: zombie_detected=False for {sid} ({elapsed_ms:.2f} ms)")
+                    except Exception as e:
+                        log(f"❌ Redis hset zombie_detected reset failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — zombie_detected flag was NOT reset")
+
+                # Reset other session flags for this sid (leave as-is)
                 session["warned"] = False
                 session["last_is_final_time"] = None
 
@@ -1471,7 +1509,7 @@ async def media_stream(ws: WebSocket):
 
                 except Exception as e:
                     print(f"❌ Failed to reconnect Deepgram: {e}")
-                    
+
         loop.create_task(deepgram_error_reconnection())
         
         def on_transcript(*args, **kwargs):
