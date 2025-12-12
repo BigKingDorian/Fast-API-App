@@ -301,10 +301,20 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     else:
         print("⚠️ Skipping transcript/audio save due to likely blank response.")
 
-    session["ffmpeg_audio_ready"] = True
-    print(f"🚩 Flag set: ffmpeg_audio_ready = True for session {call_sid}")
+    # ✅ Redis-only flag write (no session_memory flag write)
+    if redis_client is not None:
+        try:
+            start_redis = time.perf_counter()
+            # store as JSON so you can json.loads(...) elsewhere to get a real bool
+            await redis_client.hset(call_sid, mapping={"ffmpeg_audio_ready": json.dumps(True)})
+            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+            log(f"🚩 Redis flag set: ffmpeg_audio_ready=True for {call_sid} ({elapsed_ms:.2f} ms)")
+        except Exception as e:
+            log(f"❌ Redis hset ffmpeg_audio_ready failed for {call_sid}: {e}")
+    else:
+        log("⚠️ redis_client is None — ffmpeg_audio_ready flag was NOT set")
 
-    return converted_path
+    return converted_pathI'm trying
     
 async def get_11labs_audio(call_sid: str):
     """
@@ -810,7 +820,6 @@ async def post4(request: Request):
         print(f"❌ /4 hit but no session_memory entry for {call_sid}")
         vr = VoiceResponse()
         vr.say("Sorry, something went wrong. Let me reset.")
-        # You can choose where to send them: restart, or back to /3
         vr.redirect("/")   # or vr.redirect("/3")
         return Response(str(vr), media_type="application/xml")
 
@@ -822,11 +831,7 @@ async def post4(request: Request):
     if not unique_id or not file_path:
         print(f"❌ Missing unique_id or file_path in session_memory for {call_sid}")
         vr = VoiceResponse()
-        # Option A: try to re-trigger the 11Labs step
         vr.redirect("/3")
-        # Option B: apologize + hang up instead:
-        # vr.say("Sorry, there was a problem preparing your audio.")
-        # vr.hangup()
         return Response(str(vr), media_type="application/xml")
 
     # 🔒 3) Kick off FFmpeg only once
@@ -841,8 +846,22 @@ async def post4(request: Request):
 
     vr = VoiceResponse()
 
+    # ✅ Redis-only read for ffmpeg_audio_ready (do NOT read from session_memory)
+    ffmpeg_audio_ready = False
+    if redis_client is not None:
+        try:
+            raw = await redis_client.hget(call_sid, "ffmpeg_audio_ready")
+            if raw is not None:
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+                ffmpeg_audio_ready = bool(json.loads(raw))
+        except Exception as e:
+            log(f"❌ Redis hget ffmpeg_audio_ready failed for {call_sid}: {e}")
+    else:
+        log("⚠️ redis_client is None — treating ffmpeg_audio_ready as False")
+
     # 🔒 4) Only redirect to /5 once FFmpeg says the audio is ready
-    if session.get("ffmpeg_audio_ready"):
+    if ffmpeg_audio_ready:
         print("✅ FFmpeg audio is ready — redirecting to /5")
         vr.redirect("/5")
     else:
@@ -856,7 +875,18 @@ async def post5(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    session_memory[call_sid]["ffmpeg_audio_ready"] = False
+    # ✅ Redis-only write (do NOT write ffmpeg_audio_ready to session_memory)
+    if redis_client is not None:
+        try:
+            start_redis = time.perf_counter()
+            await redis_client.hset(call_sid, mapping={"ffmpeg_audio_ready": json.dumps(False)})
+            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+            log(f"🚩 Redis flag set: ffmpeg_audio_ready=False for {call_sid} ({elapsed_ms:.2f} ms)")
+        except Exception as e:
+            log(f"❌ Redis hset ffmpeg_audio_ready failed for {call_sid}: {e}")
+    else:
+        log("⚠️ redis_client is None — ffmpeg_audio_ready flag was NOT set to False")
+
     print(f"🚩 Flag set: ffmpeg_audio_ready = False for session {call_sid}")
     
     session_memory[call_sid]["ffmpeg_audio_fetch_started"] = False
