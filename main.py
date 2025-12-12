@@ -160,8 +160,11 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
         log("⚠️ save_transcript called but redis_client is None; only local cache updated")
 
     # 🟡 Optional: keep local cache during migration
+    # ✅ BUT: transcript_version is Redis-only (do NOT write it to session_memory)
     session = session_memory.setdefault(call_sid, {})
     for k, v in fields.items():
+        if k == "transcript_version":
+            continue
         session[k] = v
 
 async def get_last_audio_for_call(call_sid: str):
@@ -576,12 +579,19 @@ async def twilio_voice_webhook(request: Request):
     # 🧠 Load session snapshot from Redis (preferred) + keep local cache for migration
     session: dict = session_memory.get(call_sid, {}).copy()
 
+    # ✅ transcript_version is Redis-only: never keep/copy it in local session snapshot
+    session.pop("transcript_version", None)
+
     if redis_client is not None:
         try:
             redis_session = await redis_client.hgetall(call_sid)  # returns dict[str,str]
             print(f"🧠 Redis session for {call_sid}: {redis_session}")
             # Merge Redis values into local snapshot (strings are fine for flags)
             session.update(redis_session)
+
+            # ✅ transcript_version is Redis-only: do not keep/copy it into session_memory
+            session.pop("transcript_version", None)
+
         except Exception as e:
             print(f"⚠️ Failed to read Redis session for {call_sid}: {e}")
     else:
@@ -595,6 +605,9 @@ async def twilio_voice_webhook(request: Request):
     if not greeting_played:
         # Mark as played (local + Redis)
         session["greeting_played"] = True
+
+        # ✅ transcript_version is Redis-only: ensure it is NOT written into session_memory
+        session.pop("transcript_version", None)
         session_memory[call_sid] = session  # keep cache updated
 
         if redis_client is not None:
@@ -627,16 +640,16 @@ async def twilio_voice_webhook(request: Request):
             last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
         except Exception as e:
             log(f"⚠️ Redis HMGET failed for {call_sid}: {e}")
-            # Fallback to local cache
+            # Fallback to local cache (✅ but transcript_version stays Redis-only)
             data = session_memory.get(call_sid, {})
             user_transcript = data.get("user_transcript")
-            transcript_version = data.get("transcript_version", 0.0) or 0.0
+            transcript_version = 0.0  # ✅ DO NOT read transcript_version from session_memory
             last_responded_version = data.get("last_responded_version", 0.0) or 0.0
     else:
-        # Pure in-memory fallback
+        # Pure in-memory fallback (✅ but transcript_version stays Redis-only)
         data = session_memory.get(call_sid, {})
         user_transcript = data.get("user_transcript")
-        transcript_version = data.get("transcript_version", 0.0) or 0.0
+        transcript_version = 0.0  # ✅ DO NOT read transcript_version from session_memory
         last_responded_version = data.get("last_responded_version", 0.0) or 0.0
 
     # (This old var isn't used in logic anymore; you can delete if you want)
@@ -1598,7 +1611,6 @@ async def media_stream(ws: WebSocket):
                                         # ✅ Proceed with save
                                         session_memory[sid]["user_transcript"] = full_transcript
                                         session_memory[sid]["ready"] = True
-                                        session_memory[sid]["transcript_version"] = time.time()
 
                                         log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
                                         loop.create_task(
