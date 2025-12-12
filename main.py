@@ -834,11 +834,35 @@ async def post4(request: Request):
         vr.redirect("/3")
         return Response(str(vr), media_type="application/xml")
 
-    # 🔒 3) Kick off FFmpeg only once
-    if not session.get("ffmpeg_audio_fetch_started"):
-        session["ffmpeg_audio_fetch_started"] = True
+    # ✅ Redis-only read for ffmpeg_audio_fetch_started (do NOT read from session_memory)
+    ffmpeg_audio_fetch_started = False
+    if redis_client is not None:
+        try:
+            raw = await redis_client.hget(call_sid, "ffmpeg_audio_fetch_started")
+            if raw is not None:
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+                ffmpeg_audio_fetch_started = bool(json.loads(raw))
+        except Exception as e:
+            log(f"❌ Redis hget ffmpeg_audio_fetch_started failed for {call_sid}: {e}")
+    else:
+        log("⚠️ redis_client is None — treating ffmpeg_audio_fetch_started as False")
+
+    # 🔒 3) Kick off FFmpeg only once (Redis-gated)
+    if not ffmpeg_audio_fetch_started:
+        # ✅ Redis-only write (do NOT write ffmpeg_audio_fetch_started to session_memory)
+        if redis_client is not None:
+            try:
+                start_redis = time.perf_counter()
+                await redis_client.hset(call_sid, mapping={"ffmpeg_audio_fetch_started": json.dumps(True)})
+                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                log(f"🚩 Redis flag set: ffmpeg_audio_fetch_started=True for {call_sid} ({elapsed_ms:.2f} ms)")
+            except Exception as e:
+                log(f"❌ Redis hset ffmpeg_audio_fetch_started failed for {call_sid}: {e}")
+
         asyncio.create_task(convert_audio_ulaw(call_sid, file_path, unique_id))
         print("🚀 Started FFmpeg task in background")
+
         session["11labs_audio_fetch_started"] = False
         print(f"🚩 Flag set: 11labs_audio_fetch_started = False for session {call_sid}")
         session["11labs_audio_ready"] = False
@@ -869,7 +893,7 @@ async def post4(request: Request):
         vr.redirect("/wait4")
 
     return Response(str(vr), media_type="application/xml")
-
+    
 @app.post("/5")
 async def post5(request: Request):
     form_data = await request.form()
@@ -888,8 +912,19 @@ async def post5(request: Request):
         log("⚠️ redis_client is None — ffmpeg_audio_ready flag was NOT set to False")
 
     print(f"🚩 Flag set: ffmpeg_audio_ready = False for session {call_sid}")
-    
-    session_memory[call_sid]["ffmpeg_audio_fetch_started"] = False
+
+    # ✅ Redis-only reset (do NOT write ffmpeg_audio_fetch_started to session_memory)
+    if redis_client is not None:
+        try:
+            start_redis = time.perf_counter()
+            await redis_client.hset(call_sid, mapping={"ffmpeg_audio_fetch_started": json.dumps(False)})
+            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+            log(f"🚩 Redis flag set: ffmpeg_audio_fetch_started=False for {call_sid} ({elapsed_ms:.2f} ms)")
+        except Exception as e:
+            log(f"❌ Redis hset ffmpeg_audio_fetch_started failed for {call_sid}: {e}")
+    else:
+        log("⚠️ redis_client is None — ffmpeg_audio_fetch_started flag was NOT set to False")
+
     print(f"🚩 Flag set: ffmpeg_audio_fetch_started = False for session {call_sid}")
 
     # ── 5. BUILD TWIML ─────────────────────────────────────────────────────────
