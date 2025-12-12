@@ -314,7 +314,7 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
     else:
         log("⚠️ redis_client is None — ffmpeg_audio_ready flag was NOT set")
 
-    return converted_pathI'm trying
+    return converted_path
     
 async def get_11labs_audio(call_sid: str):
     """
