@@ -1366,13 +1366,46 @@ async def media_stream(ws: WebSocket):
             return
 
         async def deepgram_close_watchdog():
+            def _parse_boolish(raw, default: bool = False) -> bool:
+                if raw is None:
+                    return default
+
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+
+                if isinstance(raw, bool):
+                    return raw
+
+                s = str(raw).strip().lower()
+                if s in {"1", "true", "yes", "y", "t"}:
+                    return True
+                if s in {"0", "false", "no", "n", "f"}:
+                    return False
+
+                # handles json.dumps(True/False) => "true"/"false"
+                try:
+                    return bool(json.loads(s))
+                except Exception:
+                    return default
+
             while True:
                 await asyncio.sleep(0.02)
                 sid = call_sid_holder.get("sid")
                 if not sid:
                     continue
 
-                if session_memory.get(sid, {}).get("close_requested"):
+                # ✅ Redis-only read for close_requested (no session_memory fallback)
+                close_requested = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "close_requested")
+                        close_requested = _parse_boolish(raw, default=False)
+                    except Exception as e:
+                        print(f"⚠️ Redis hget close_requested failed for {sid}: {e}")
+                else:
+                    close_requested = False  # Redis disabled => treat as not requested
+
+                if close_requested:
                     print(f"🛑 Closing Deepgram for {sid}")
                     try:
                         dg_connection.finish()
@@ -1396,10 +1429,30 @@ async def media_stream(ws: WebSocket):
                         print(f"⚠️ Error closing WebSocket in deepgram_close_watchdog: {e}")
 
                     return
-                    
+
         loop.create_task(deepgram_close_watchdog())
-        
+
         async def deepgram_is_final_watchdog():
+            def _parse_boolish(raw, default: bool = False) -> bool:
+                if raw is None:
+                    return default
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+                if isinstance(raw, bool):
+                    return raw
+
+                s = str(raw).strip().lower()
+                if s in {"1", "true", "yes", "y", "t"}:
+                    return True
+                if s in {"0", "false", "no", "n", "f"}:
+                    return False
+
+                # handles json.dumps(True/False) => "true"/"false"
+                try:
+                    return bool(json.loads(s))
+                except Exception:
+                    return default
+
             while True:
                 await asyncio.sleep(0.02)
 
@@ -1460,6 +1513,18 @@ async def media_stream(ws: WebSocket):
                 else:
                     log("⚠️ redis_client is None — treating ai_is_speaking as False")
 
+                # ✅ Redis-only read for close_requested (NO session_memory fallback)
+                close_requested = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "close_requested")
+                        close_requested = _parse_boolish(raw, default=False)
+                    except Exception as e:
+                        log(f"❌ Redis hget close_requested failed for {sid}: {e}")
+                        close_requested = False
+                else:
+                    close_requested = False  # Redis disabled => treat as not requested
+
                 last_time = session.get("last_is_final_time")
                 if not last_time:
                     continue  # no is_final seen yet
@@ -1469,9 +1534,9 @@ async def media_stream(ws: WebSocket):
                 if (
                     elapsed > 2.5
                     and not warned
-                    and session.get("close_requested") is False
-                    and ai_is_speaking is False              # ✅ Redis-only gate
-                    and user_response_processing is False    # ✅ Redis-only gate
+                    and close_requested is False          # ✅ Redis-only gate
+                    and ai_is_speaking is False           # ✅ Redis-only gate
+                    and user_response_processing is False # ✅ Redis-only gate
                 ):
 
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
@@ -1505,7 +1570,7 @@ async def media_stream(ws: WebSocket):
                     print(f"🧟 Detected Deepgram zombie stream for {sid}, reconnecting...")
 
         loop.create_task(deepgram_is_final_watchdog())
-
+        
         async def deepgram_error_reconnection():
             nonlocal dg_connection  # so we can replace the shared connection
 
@@ -1736,7 +1801,9 @@ async def media_stream(ws: WebSocket):
             ai_is_speaking = await redis_get_bool_loose(sid, "ai_is_speaking", default=False)
 
             if (ai_is_speaking is False) and (user_processing is False):
-                session["close_requested"] = True
+                # ✅ Redis-only write for close_requested=True (do NOT write to session_memory)
+                await redis_set_bool_json(sid, "close_requested", True)
+
                 print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
 
                 session["user_transcript"] = full_transcript
@@ -1974,7 +2041,7 @@ async def media_stream(ws: WebSocket):
                     continue
 
                 # ... rest of your event handling (start/media/stop) unchanged ...
- 
+
                 event = msg.get("event")
 
                 if event == "start":
@@ -1988,7 +2055,18 @@ async def media_stream(ws: WebSocket):
                     call_sid_holder["sid"] = sid
 
                     session = session_memory.setdefault(sid, {})
-                    session["close_requested"] = False   # ← RESET HERE ONLY
+
+                    # ✅ close_requested is now Redis-only: reset via Redis (do NOT write session["close_requested"])
+                    if redis_client is not None:
+                        try:
+                            start_redis = time.perf_counter()
+                            await redis_client.hset(sid, mapping={"close_requested": json.dumps(False)})
+                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                            log(f"🚩 Redis flag reset: close_requested=False for {sid} ({elapsed_ms:.2f} ms)")
+                        except Exception as e:
+                            log(f"❌ Redis hset close_requested reset failed for {sid}: {e}")
+                    else:
+                        log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
 
                     # Reset deepgram_is_final_watchdog
                     # ✅ warned is Redis-only: reset via Redis (do NOT write session["warned"])
@@ -2013,7 +2091,7 @@ async def media_stream(ws: WebSocket):
 
                     print(f"📞 Stream started for {sid}, close_requested=False")
 
-                    #Let Keep Alive Logic Run 
+                    #Let Keep Alive Logic Run
                     session_memory[sid]["clean_websocket_close"] = False
                     print("🧼 clean_websocket_close = False")
 
@@ -2036,7 +2114,7 @@ async def media_stream(ws: WebSocket):
                                 # keep tail only
                                 session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
 
-                        # 🔴 Try to send live to Deepgram (may fail during reconnect)   
+                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
                         try:
                             dg_connection.send(payload)
 
@@ -2050,46 +2128,7 @@ async def media_stream(ws: WebSocket):
 
                     except Exception as e:
                         print(f"⚠️ Error processing Twilio media: {e}")
-                        
+
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     break
-
-        await sender()
-
-    except Exception as e:
-        print(f"⛔ Deepgram error: {e}")
-
-    finally:
-        if dg_connection:
-            try:
-                dg_connection.finish()
-            except Exception as e:
-                print(f"⚠️ Error closing Deepgram connection: {e}")
-
-        sid = call_sid_holder.get("sid")
-
-        try:
-            if ws_state["closed"]:
-                print(f"ℹ️ finally: ws_state.closed already True (sid={sid}), skipping ws.close()")
-            else:
-                if sid:
-                    session = session_memory.setdefault(sid, {})
-                    if not session.get("clean_websocket_close", False):
-                        print(f"🔻 finally: WebSocket still open for {sid}, closing now")
-                        session["clean_websocket_close"] = True
-                        ws_state["closed"] = True
-                        await ws.close()
-                        print(f"🧼 clean_websocket_close from sender = True for {sid} (finally)")
-                    else:
-                        print(f"ℹ️ finally: clean_websocket_close already True for {sid}, skipping ws.close()")
-                else:
-                    print(f"🔻 [WS CLOSE] About to call ws.close() for sid={sid} at {time.time():.3f}")
-                    ws_state["closed"] = True
-                    await ws.close()
-                    print(f"✅ [WS CLOSE] ws.close() completed for sid={sid} at {time.time():.3f}")
-        except Exception as e:
-            print(f"⚠️ Error closing WebSocket in finally: {e}")
-
-        print("✅ Connection closed")
-        
