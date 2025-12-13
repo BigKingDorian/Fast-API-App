@@ -2206,6 +2206,25 @@ async def media_stream(ws: WebSocket):
                     break
 
                 else:
-                    # ignore unknown events
                     pass
-                    
+
+        await sender()
+
+    except Exception as e:
+        print(f"⛔ /media crashed: {e}")
+
+    finally:
+        ws_state["closed"] = True
+
+        try:
+            if dg_connection is not None:
+                dg_connection.finish()
+        except Exception as e:
+            print(f"⚠️ Error finishing Deepgram in finally: {e}")
+
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
