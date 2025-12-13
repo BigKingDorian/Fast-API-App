@@ -998,7 +998,7 @@ async def post5(request: Request):
         else:
             log("⚠️ redis_client is None — user_response_processing flag was NOT set to False")
 
-        vr.play(f"https://silent-sound-1030.fly.dev/static/audio{ulaw_filename}")
+        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
 
