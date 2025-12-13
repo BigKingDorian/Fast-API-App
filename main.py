@@ -1996,24 +1996,22 @@ async def media_stream(ws: WebSocket):
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
                         
-        loop.create_task(monitor_user_done())
-        
-        async def sender():
+       loop.create_task(monitor_user_done())
+
+       async def sender():
             send_counter = 0
             last_recv_log = 0.0
 
             while True:
-                # 🛑 If some other task already closed the WebSocket, exit cleanly
                 if ws_state["closed"]:
                     print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
                     break
 
-                # 1) RECEIVE from Twilio WS
                 try:
                     raw = await ws.receive_text()
 
                     now = time.time()
-                    if now - last_recv_log >= 0.5:  # only log every 500ms
+                    if now - last_recv_log >= 0.5:
                         print("📡 Used ws.receive_text in sender")
                         last_recv_log = now
 
@@ -2033,14 +2031,12 @@ async def media_stream(ws: WebSocket):
                     ws_state["closed"] = True
                     break
 
-                # 2) PARSE JSON
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
 
-                # 3) HANDLE EVENTS
                 event = msg.get("event")
 
                 if event == "start":
@@ -2054,7 +2050,6 @@ async def media_stream(ws: WebSocket):
                     call_sid_holder["sid"] = sid
                     session = session_memory.setdefault(sid, {})
 
-                    # ✅ close_requested is Redis-only
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2066,7 +2061,6 @@ async def media_stream(ws: WebSocket):
                     else:
                         log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
 
-                    # (Your warned reset - you marked this Redis-only too)
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2079,15 +2073,11 @@ async def media_stream(ws: WebSocket):
                         log("⚠️ redis_client is None — warned flag was NOT reset")
 
                     session["last_is_final_time"] = None
-
-                    # 🔁 Init / reset audio buffer for this call
                     session["audio_buffer"] = bytearray()
+                    session["clean_websocket_close"] = False
+
                     print(f"🧺 Initialized audio_buffer for {sid}")
-
-                    # Let Keep Alive Logic Run
-                    session_memory[sid]["clean_websocket_close"] = False
                     print("🧼 clean_websocket_close = False")
-
                     print(f"📞 Stream started for {sid}")
 
                 elif event == "media":
@@ -2100,7 +2090,6 @@ async def media_stream(ws: WebSocket):
                             session = session_memory.setdefault(sid, {})
                             buf = session.setdefault("audio_buffer", bytearray())
                             buf.extend(payload)
-
                             if len(buf) > MAX_BUFFER_BYTES:
                                 session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
 
@@ -2119,4 +2108,6 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     ws_state["closed"] = True
                     break
-                
+
+        await sender()
+
