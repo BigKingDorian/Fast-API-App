@@ -2080,6 +2080,7 @@ async def media_stream(ws: WebSocket):
                     print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
                     break
 
+                # 1) RECEIVE from Twilio WS
                 try:
                     raw = await ws.receive_text()
 
@@ -2104,6 +2105,7 @@ async def media_stream(ws: WebSocket):
                     ws_state["closed"] = True
                     break
 
+                # 2) PARSE JSON
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError as e:
@@ -2112,17 +2114,19 @@ async def media_stream(ws: WebSocket):
 
                 event = msg.get("event")
 
+                # 3) HANDLE EVENTS
                 if event == "start":
                     sid = (
-                        msg["start"].get("callSid")
-                        or msg["start"].get("CallSid")
-                        or msg["start"].get("callerSid")
-                        or msg["start"].get("CallerSid")
+                        msg.get("start", {}).get("callSid")
+                        or msg.get("start", {}).get("CallSid")
+                        or msg.get("start", {}).get("callerSid")
+                        or msg.get("start", {}).get("CallerSid")
                     )
 
                     call_sid_holder["sid"] = sid
                     session = session_memory.setdefault(sid, {})
 
+                    # close_requested reset (Redis-only in your setup)
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2134,6 +2138,7 @@ async def media_stream(ws: WebSocket):
                     else:
                         log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
 
+                    # warned reset (Redis-only in your setup)
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2145,6 +2150,7 @@ async def media_stream(ws: WebSocket):
                     else:
                         log("⚠️ redis_client is None — warned flag was NOT reset")
 
+                    # session stuff stays session_memory-based
                     session["last_is_final_time"] = None
                     session["audio_buffer"] = bytearray()
 
@@ -2165,30 +2171,41 @@ async def media_stream(ws: WebSocket):
                     print(f"📞 Stream started for {sid}")
 
                 elif event == "media":
+                    media = msg.get("media") or {}
+                    b64 = media.get("payload")
+                    if not b64:
+                        continue
+
                     try:
-                        payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.last_media_time = time.time()
-
-                        sid = call_sid_holder.get("sid")
-                        if sid:
-                            session = session_memory.setdefault(sid, {})
-                            buf = session.setdefault("audio_buffer", bytearray())
-                            buf.extend(payload)
-                            if len(buf) > MAX_BUFFER_BYTES:
-                                session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
-
-                        try:
-                            dg_connection.send(payload)
-                            if send_counter % 50 == 0:
-                                print(f"📡 Used .send for payload in sender (count={send_counter})")
-                            send_counter += 1
-                        except Exception as e:
-                            print(f"⚠️ Error sending to Deepgram (live): {e}")
-
+                        payload = base64.b64decode(b64)
                     except Exception as e:
-                        print(f"⚠️ Error processing Twilio media: {e}")
+                        print(f"⚠️ Error decoding Twilio media payload: {e}")
+                        continue
+
+                    dg_connection.last_media_time = time.time()
+
+                    sid = call_sid_holder.get("sid")
+                    if sid:
+                        session = session_memory.setdefault(sid, {})
+                        buf = session.setdefault("audio_buffer", bytearray())
+                        buf.extend(payload)
+                        if len(buf) > MAX_BUFFER_BYTES:
+                            session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
+
+                    try:
+                        dg_connection.send(payload)
+                        if send_counter % 50 == 0:
+                            print(f"📡 Used .send for payload in sender (count={send_counter})")
+                        send_counter += 1
+                    except Exception as e:
+                        print(f"⚠️ Error sending to Deepgram (live): {e}")
 
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
                     ws_state["closed"] = True
                     break
+
+                else:
+                    # ignore unknown events
+                    pass
+                    
