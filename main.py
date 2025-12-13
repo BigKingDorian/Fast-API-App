@@ -2108,5 +2108,24 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     ws_state["closed"] = True
                     break
-
+                    
         await sender()
+
+    except Exception as e:
+        print(f"⛔ /media crashed: {e}")
+
+    finally:
+        ws_state["closed"] = True
+
+        # try to shut down Deepgram cleanly
+        try:
+            if dg_connection is not None:
+                dg_connection.finish()
+        except Exception as e:
+            print(f"⚠️ Error finishing Deepgram in finally: {e}")
+
+        # try to shut down the WebSocket cleanly
+        try:
+            await ws.close()
+        except Exception:
+            pass
