@@ -1380,7 +1380,7 @@ async def media_stream(ws: WebSocket):
                     return
                     
         loop.create_task(deepgram_close_watchdog())
-
+        
         async def deepgram_is_final_watchdog():
             while True:
                 await asyncio.sleep(0.02)
@@ -1392,9 +1392,19 @@ async def media_stream(ws: WebSocket):
                 # make sure session exists
                 session = session_memory.setdefault(sid, {})
 
-                # initialize warned once per session
-                if "warned" not in session:
-                    session["warned"] = False
+                # ✅ Redis-only read for warned (do NOT initialize/use session["warned"])
+                warned = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "warned")
+                        if raw is not None:
+                            if isinstance(raw, (bytes, bytearray)):
+                                raw = raw.decode("utf-8", errors="ignore")
+                            warned = bool(json.loads(raw))
+                    except Exception as e:
+                        log(f"❌ Redis hget warned failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — treating warned as False")
 
                 last_time = session.get("last_is_final_time")
                 if not last_time:
@@ -1404,14 +1414,26 @@ async def media_stream(ws: WebSocket):
 
                 if (
                     elapsed > 2.5
-                    and not session["warned"]
+                    and not warned
                     and session.get("close_requested") is False
                     and session.get("ai_is_speaking") is False
                     and session.get("user_response_processing") is False
                 ):
-                    
+
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
-                    session["warned"] = True
+
+                    # ✅ Redis-only write for warned=True (do NOT write to session_memory)
+                    if redis_client is not None:
+                        try:
+                            start_redis = time.perf_counter()
+                            await redis_client.hset(sid, mapping={"warned": json.dumps(True)})
+                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                            log(f"🚩 Redis flag set: warned=True for {sid} ({elapsed_ms:.2f} ms)")
+                        except Exception as e:
+                            log(f"❌ Redis hset warned failed for {sid}: {e}")
+                    else:
+                        log("⚠️ redis_client is None — warned flag was NOT set")
+
                     print(f"🚩 Flag set: warned = True for session {sid}")
 
                     # ✅ Redis-only write (do NOT write zombie_detected to session_memory)
@@ -1473,8 +1495,19 @@ async def media_stream(ws: WebSocket):
                 else:
                     log("⚠️ redis_client is None — zombie_detected flag was NOT reset")
 
+                # ✅ warned is Redis-only: reset warned via Redis (do NOT write session['warned'])
+                if redis_client is not None:
+                    try:
+                        start_redis = time.perf_counter()
+                        await redis_client.hset(sid, mapping={"warned": json.dumps(False)})
+                        elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                        log(f"🚩 Redis flag reset: warned=False for {sid} ({elapsed_ms:.2f} ms)")
+                    except Exception as e:
+                        log(f"❌ Redis hset warned reset failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — warned flag was NOT reset")
+
                 # Reset other session flags for this sid (leave as-is)
-                session["warned"] = False
                 session["last_is_final_time"] = None
 
                 try:
@@ -1801,8 +1834,20 @@ async def media_stream(ws: WebSocket):
                     session["close_requested"] = False   # ← RESET HERE ONLY
 
                     # Reset deepgram_is_final_watchdog
-                    session["warned"] = False
+                    # ✅ warned is Redis-only: reset via Redis (do NOT write session["warned"])
+                    if redis_client is not None:
+                        try:
+                            start_redis = time.perf_counter()
+                            await redis_client.hset(sid, mapping={"warned": json.dumps(False)})
+                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                            log(f"🚩 Redis flag reset: warned=False for {sid} ({elapsed_ms:.2f} ms)")
+                        except Exception as e:
+                            log(f"❌ Redis hset warned reset failed for {sid}: {e}")
+                    else:
+                        log("⚠️ redis_client is None — warned flag was NOT reset")
+
                     print(f"🚩 Flag set: warned = False for session")
+
                     session["last_is_final_time"] = None
 
                     # 🔁 Init / reset audio buffer for this call
