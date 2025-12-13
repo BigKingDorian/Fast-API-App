@@ -1412,15 +1412,22 @@ async def media_stream(ws: WebSocket):
                     except Exception as e:
                         print(f"⚠️ Error closing Deepgram for {sid}: {e}")
 
-                    session = session_memory.setdefault(sid, {})
                     if ws_state["closed"]:
                         print(f"ℹ️ deepgram_close_watchdog: ws already closed for {sid}, skipping ws.close()")
                         return
 
-                    # ✅ Mark closed *before* calling ws.close(), so finally sees it
-                    session["clean_websocket_close"] = True
+                    # ✅ Redis-only write for clean_websocket_close=True (NO session_memory fallback)
+                    if redis_client is not None:
+                        try:
+                            await redis_client.hset(sid, mapping={"clean_websocket_close": json.dumps(True)})
+                            print(f"🧼 Redis clean_websocket_close=True for {sid} (deepgram_close_watchdog)")
+                        except Exception as e:
+                            print(f"⚠️ Redis hset clean_websocket_close failed for {sid}: {e}")
+                    else:
+                        print("⚠️ redis_client is None — clean_websocket_close NOT set (Redis-only flag)")
+
+                    # ✅ Mark closed *before* calling ws.close(), so other loops can see it
                     ws_state["closed"] = True
-                    print(f"🧼 clean_websocket_close = True for {sid} deepgram_close_watchdog")
 
                     try:
                         print(f"🔻 deepgram_close_watchdog: calling ws.close() for {sid}")
@@ -1926,20 +1933,53 @@ async def media_stream(ws: WebSocket):
         dg_connection.last_media_time = time.time()  # initialize timestamp
 
         async def deepgram_keepalive():
+            def _parse_boolish(raw, default: bool = False) -> bool:
+                if raw is None:
+                    return default
+
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+
+                if isinstance(raw, bool):
+                    return raw
+
+                s = str(raw).strip().lower()
+                if s in {"1", "true", "yes", "y", "t"}:
+                    return True
+                if s in {"0", "false", "no", "n", "f"}:
+                    return False
+
+                # handles json.dumps(True/False) => "true"/"false"
+                try:
+                    return bool(json.loads(s))
+                except Exception:
+                    return default
+
             counter = 0
             while True:
                 await asyncio.sleep(0.02)  # run every 20ms
 
                 sid = call_sid_holder.get("sid")
 
-                # 🔍 Debug: is keepalive still running?
-                # (throttled so you don't print 50x/sec)
+                # ✅ Redis-only read for clean_websocket_close (NO session_memory fallback)
+                clean_websocket_close = False
+                if sid and redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "clean_websocket_close")
+                        clean_websocket_close = _parse_boolish(raw, default=False)
+                    except Exception as e:
+                        print(f"⚠️ Redis hget clean_websocket_close failed for {sid}: {e}")
+                        clean_websocket_close = False
+
+                # 🔍 Debug: is keepalive still running? (throttled)
                 if counter % 50 == 0:  # ~once per second
-                    print(f"📡 keepalive still running for sid={sid}, "
-                          f"clean_websocket_close={session_memory.get(sid, {}).get('clean_websocket_close') if sid else None}")
+                    print(
+                        f"📡 keepalive still running for sid={sid}, "
+                        f"clean_websocket_close={clean_websocket_close if sid else None}"
+                    )
                 counter += 1
 
-                if sid and session_memory.get(sid, {}).get("clean_websocket_close"):
+                if sid and clean_websocket_close:
                     print(f"🧼 Stopping deepgram_keepalive for {sid} (clean_websocket_close=True)")
                     break
 
@@ -1952,27 +1992,60 @@ async def media_stream(ws: WebSocket):
                     break
 
         loop.create_task(deepgram_keepalive())
-
+        
         async def deepgram_text_keepalive():
+            def _parse_boolish(raw, default: bool = False) -> bool:
+                if raw is None:
+                    return default
+
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode("utf-8", errors="ignore")
+
+                if isinstance(raw, bool):
+                    return raw
+
+                s = str(raw).strip().lower()
+                if s in {"1", "true", "yes", "y", "t"}:
+                    return True
+                if s in {"0", "false", "no", "n", "f"}:
+                    return False
+
+                # handles json.dumps(True/False) => "true"/"false"
+                try:
+                    return bool(json.loads(s))
+                except Exception:
+                    return default
+
             while True:
                 await asyncio.sleep(5)  # Send every 5 seconds
 
                 sid = call_sid_holder.get("sid")
-                if sid and session_memory.get(sid, {}).get("clean_websocket_close"):
+
+                # ✅ Redis-only read for clean_websocket_close (NO session_memory fallback)
+                clean_websocket_close = False
+                if sid and redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "clean_websocket_close")
+                        clean_websocket_close = _parse_boolish(raw, default=False)
+                    except Exception as e:
+                        print(f"⚠️ Redis hget clean_websocket_close failed for {sid}: {e}")
+                        clean_websocket_close = False
+
+                if sid and clean_websocket_close:
                     print(f"🧼 Stopping deepgram_text_keepalive for {sid} (clean_websocket_close=True)")
                     break
 
                 try:
                     dg_connection.send(json.dumps({"type": "KeepAlive"}))
                     print(f"📡 Used .send for Silence Fram in deepgram_text_keepalive")
-                    #print(f"📨 Sent text KeepAlive at {time.time()}")
+                    # print(f"📨 Sent text KeepAlive at {time.time()}")
 
                 except Exception as e:
                     print(f"❌ Error sending text KeepAlive: {e}")
                     break  # Stop the loop if the connection is closed or broken
 
         loop.create_task(deepgram_text_keepalive())
-
+        
         async def monitor_user_done():
             while not finished["done"]:
                 await asyncio.sleep(0.5)
@@ -2074,10 +2147,21 @@ async def media_stream(ws: WebSocket):
 
                     session["last_is_final_time"] = None
                     session["audio_buffer"] = bytearray()
-                    session["clean_websocket_close"] = False
+
+                    # ✅ clean_websocket_close is Redis-only (do NOT write to session_memory)
+                    if redis_client is not None:
+                        try:
+                            start_redis = time.perf_counter()
+                            await redis_client.hset(sid, mapping={"clean_websocket_close": json.dumps(False)})
+                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                            log(f"🧼 Redis flag reset: clean_websocket_close=False for {sid} ({elapsed_ms:.2f} ms)")
+                        except Exception as e:
+                            log(f"❌ Redis hset clean_websocket_close reset failed for {sid}: {e}")
+                    else:
+                        log("⚠️ redis_client is None — clean_websocket_close was NOT reset (Redis-only flag)")
 
                     print(f"🧺 Initialized audio_buffer for {sid}")
-                    print("🧼 clean_websocket_close = False")
+                    print("🧼 clean_websocket_close = False (Redis)")
                     print(f"📞 Stream started for {sid}")
 
                 elif event == "media":
@@ -2108,24 +2192,3 @@ async def media_stream(ws: WebSocket):
                     print("⏹ Stream stopped by Twilio")
                     ws_state["closed"] = True
                     break
-                    
-        await sender()
-
-    except Exception as e:
-        print(f"⛔ /media crashed: {e}")
-
-    finally:
-        ws_state["closed"] = True
-
-        # try to shut down Deepgram cleanly
-        try:
-            if dg_connection is not None:
-                dg_connection.finish()
-        except Exception as e:
-            print(f"⚠️ Error finishing Deepgram in finally: {e}")
-
-        # try to shut down the WebSocket cleanly
-        try:
-            await ws.close()
-        except Exception:
-            pass
