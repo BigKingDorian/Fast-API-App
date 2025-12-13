@@ -975,11 +975,23 @@ async def post5(request: Request):
         print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
 
         logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
-        session_memory[call_sid]['user_response_processing'] = False
-        
+
+        # ✅ user_response_processing is Redis-only: set False via Redis (do NOT write to session_memory)
+        if redis_client is not None:
+            try:
+                start_redis = time.perf_counter()
+                await redis_client.hset(call_sid, mapping={"user_response_processing": json.dumps(False)})
+                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                log(f"🚩 Redis flag set: user_response_processing=False for {call_sid} ({elapsed_ms:.2f} ms)")
+            except Exception as e:
+                log(f"❌ Redis hset user_response_processing failed for {call_sid}: {e}")
+        else:
+            log("⚠️ redis_client is None — user_response_processing flag was NOT set to False")
+
         vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
+       
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
@@ -1406,6 +1418,20 @@ async def media_stream(ws: WebSocket):
                 else:
                     log("⚠️ redis_client is None — treating warned as False")
 
+                # ✅ Redis-only read for user_response_processing (do NOT read from session_memory)
+                user_response_processing = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "user_response_processing")
+                        if raw is not None:
+                            if isinstance(raw, (bytes, bytearray)):
+                                raw = raw.decode("utf-8", errors="ignore")
+                            user_response_processing = bool(json.loads(raw))
+                    except Exception as e:
+                        log(f"❌ Redis hget user_response_processing failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — treating user_response_processing as False")
+
                 last_time = session.get("last_is_final_time")
                 if not last_time:
                     continue  # no is_final seen yet
@@ -1417,7 +1443,7 @@ async def media_stream(ws: WebSocket):
                     and not warned
                     and session.get("close_requested") is False
                     and session.get("ai_is_speaking") is False
-                    and session.get("user_response_processing") is False
+                    and user_response_processing is False   # ✅ Redis-only gate
                 ):
 
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
@@ -1607,10 +1633,24 @@ async def media_stream(ws: WebSocket):
                                 log(f"🧪 [DEBUG] full_transcript after join: {repr(full_transcript)}")
 
                                 # STOP immediately if we already processed a final transcript this turn
-                                if session_memory[sid].get("user_response_processing"):
+                                user_response_processing = False
+                                if redis_client is not None:
+                                    try:
+                                        raw = await redis_client.hget(sid, "user_response_processing")
+                                        if raw is not None:
+                                            if isinstance(raw, (bytes, bytearray)):
+                                                raw = raw.decode("utf-8", errors="ignore")
+                                            user_response_processing = bool(json.loads(raw))
+                                    except Exception as e:
+                                        log(f"❌ Redis hget user_response_processing failed for {sid}: {e}")
+                                else:
+                                    log("⚠️ redis_client is None — treating user_response_processing as False")
+
+                                # STOP immediately if we already processed a final transcript this turn
+                                if user_response_processing:
                                     print(f"🚫 Ignoring transcript — already processing user response for {sid}")
                                     return
-
+                                    
                                 if not full_transcript:
                                     log(f"⚠️ Skipping save — full_transcript is empty")
                                     return
@@ -1633,10 +1673,25 @@ async def media_stream(ws: WebSocket):
                                         log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
 
                                     # ✅ Main save gate
+                                    # ✅ Redis-only read for user_response_processing (do NOT read from session_memory)
+                                    user_response_processing = False
+                                    if redis_client is not None:
+                                        try:
+                                            raw = await redis_client.hget(sid, "user_response_processing")
+                                            if raw is not None:
+                                                if isinstance(raw, (bytes, bytearray)):
+                                                    raw = raw.decode("utf-8", errors="ignore")
+                                                user_response_processing = bool(json.loads(raw))
+                                        except Exception as e:
+                                            log(f"❌ Redis hget user_response_processing failed for {sid}: {e}")
+                                    else:
+                                        log("⚠️ redis_client is None — treating user_response_processing as False")
+
                                     if (
                                         session_memory[sid].get("ai_is_speaking") is False and
-                                        session_memory[sid].get("user_response_processing") is False
+                                        user_response_processing is False
                                     ):
+
                                         # 🔴 ONLY HERE: we actually want to close Deepgram/Twilio
                                         session_memory[sid]["close_requested"] = True
                                         print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
@@ -1651,7 +1706,18 @@ async def media_stream(ws: WebSocket):
                                         )
 
                                         logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
-                                        session_memory[sid]["user_response_processing"] = True
+
+                                        # ✅ Redis-only write for user_response_processing=True (do NOT write to session_memory)
+                                        if redis_client is not None:
+                                            try:
+                                                start_redis = time.perf_counter()
+                                                await redis_client.hset(sid, mapping={"user_response_processing": json.dumps(True)})
+                                                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                                                log(f"🚩 Redis flag set: user_response_processing=True for {sid} ({elapsed_ms:.2f} ms)")
+                                            except Exception as e:
+                                                log(f"❌ Redis hset user_response_processing failed for {sid}: {e}")
+                                        else:
+                                            log("⚠️ redis_client is None — user_response_processing flag was NOT set to True")
 
                                         # ✅ Clear after successful save
                                         final_transcripts.clear()
