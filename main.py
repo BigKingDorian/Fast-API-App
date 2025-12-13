@@ -970,9 +970,19 @@ async def post5(request: Request):
         session_memory.setdefault(call_sid, {})["block_start_time"] = block_start_time
         print(f"✅ Set block_start_time: {block_start_time}")
 
-        # Set ai_is_speaking flag to True right before the file is played in POST
-        session_memory[call_sid]["ai_is_speaking"] = True
-        print(f"🚩 Flag set: ai_is_speaking = {session_memory[call_sid]['ai_is_speaking']} for session {call_sid} at {time.time()}")
+        # ✅ Redis-only write for ai_is_speaking=True (do NOT write to session_memory)
+        if redis_client is not None:
+            try:
+                start_redis = time.perf_counter()
+                await redis_client.hset(call_sid, mapping={"ai_is_speaking": json.dumps(True)})
+                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                log(f"🚩 Redis flag set: ai_is_speaking=True for {call_sid} ({elapsed_ms:.2f} ms)")
+            except Exception as e:
+                log(f"❌ Redis hset ai_is_speaking failed for {call_sid}: {e}")
+        else:
+            log("⚠️ redis_client is None — ai_is_speaking flag was NOT set to True")
+
+        print(f"🚩 Flag set: ai_is_speaking = True for session {call_sid} at {time.time()}")
 
         logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
 
@@ -988,14 +998,14 @@ async def post5(request: Request):
         else:
             log("⚠️ redis_client is None — user_response_processing flag was NOT set to False")
 
-        vr.play(f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
+        vr.play(f"https://silent-sound-1030.fly.dev/static/audio{ulaw_filename}")
         print("🔗 Final playback URL:", f"https://silent-sound-1030.fly.dev/static/audio/{ulaw_filename}")
         print(f"✅ Queued audio for playback: {ulaw_filename}")
-       
+
     else:
         print("❌ Audio not found after retry loop")
         vr.say("Sorry, something went wrong.")
-        
+
     # ✅ Replace hangup with redirect back to self
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
@@ -1150,29 +1160,25 @@ async def greeting_rout(request: Request):
         ulaw_filename = os.path.basename(audio_path)
 
         block_start_time = time.time()
-        # Local cache
+        # Local cache (leave as-is EXCEPT ai_is_speaking)
         session = session_memory.setdefault(call_sid, {})
         session["block_start_time"] = block_start_time
-        session["ai_is_speaking"] = True
-        session["user_response_processing"] = False
+        session["user_response_processing"] = False  # (leave as-is per your request)
 
         print(f"✅ Set block_start_time: {block_start_time}")
-        print(
-            f"🚩 Flag set: ai_is_speaking = {session['ai_is_speaking']} "
-            f"for session {call_sid} at {time.time()}"
-        )
+        print(f"🚩 Flag set: ai_is_speaking = True (Redis-only) for session {call_sid} at {time.time()}")
 
         logger.info(f"🟥 [User Input] Processing complete — unblocking writes for {call_sid}")
 
-        # 🔁 Mirror flags into Redis
+        # 🔁 Mirror flags into Redis (ai_is_speaking is Redis-only now)
         if redis_client is not None:
             try:
                 await redis_client.hset(
                     call_sid,
                     mapping={
                         "block_start_time": block_start_time,
-                        "ai_is_speaking": True,
-                        "user_response_processing": False,
+                        "ai_is_speaking": json.dumps(True),          # ✅ Redis-only source of truth
+                        "user_response_processing": False,           # leave as-is per your request
                     }
                 )
             except Exception as e:
@@ -1190,7 +1196,7 @@ async def greeting_rout(request: Request):
     vr.redirect("/")
     print("📝 Returning TwiML to Twilio (with redirect).")
     return Response(content=str(vr), media_type="application/xml")
-
+    
 @app.post("/wait")
 async def wait_route(request: Request):
     print("\n📞 ── [POST] WAIT handler hit ───────────────────────────────────")
@@ -1401,7 +1407,7 @@ async def media_stream(ws: WebSocket):
                 if not sid:
                     continue
 
-                # make sure session exists
+                # make sure session exists (still used for other fields, as requested)
                 session = session_memory.setdefault(sid, {})
 
                 # ✅ Redis-only read for warned (do NOT initialize/use session["warned"])
@@ -1432,6 +1438,28 @@ async def media_stream(ws: WebSocket):
                 else:
                     log("⚠️ redis_client is None — treating user_response_processing as False")
 
+                # ✅ Redis-only read for ai_is_speaking (do NOT read from session_memory)
+                ai_is_speaking = False
+                if redis_client is not None:
+                    try:
+                        raw = await redis_client.hget(sid, "ai_is_speaking")
+                        if raw is not None:
+                            if isinstance(raw, (bytes, bytearray)):
+                                raw = raw.decode("utf-8", errors="ignore")
+
+                            s = str(raw).strip().lower()
+                            if s in {"1", "true", "yes", "y", "t"}:
+                                ai_is_speaking = True
+                            elif s in {"0", "false", "no", "n", "f"}:
+                                ai_is_speaking = False
+                            else:
+                                # fallback if you stored json.dumps(true/false)
+                                ai_is_speaking = bool(json.loads(raw))
+                    except Exception as e:
+                        log(f"❌ Redis hget ai_is_speaking failed for {sid}: {e}")
+                else:
+                    log("⚠️ redis_client is None — treating ai_is_speaking as False")
+
                 last_time = session.get("last_is_final_time")
                 if not last_time:
                     continue  # no is_final seen yet
@@ -1442,8 +1470,8 @@ async def media_stream(ws: WebSocket):
                     elapsed > 2.5
                     and not warned
                     and session.get("close_requested") is False
-                    and session.get("ai_is_speaking") is False
-                    and user_response_processing is False   # ✅ Redis-only gate
+                    and ai_is_speaking is False              # ✅ Redis-only gate
+                    and user_response_processing is False    # ✅ Redis-only gate
                 ):
 
                     print(f"⚠️ No is_final received in {elapsed:.2f}s for {sid}")
@@ -1653,6 +1681,42 @@ async def media_stream(ws: WebSocket):
             # Everything else stays session_memory-based (as you requested)
             session = session_memory.setdefault(sid, {})
 
+            # --------
+            # Redis-only helpers for ai_is_speaking (LOOSE parsing)
+            # --------
+            async def redis_get_bool_loose(hash_key: str, field: str, default: bool = False) -> bool:
+                if redis_client is None:
+                    return default
+                try:
+                    raw = await redis_client.hget(hash_key, field)
+                    if raw is None:
+                        return default
+                    if isinstance(raw, (bytes, bytearray)):
+                        raw = raw.decode("utf-8", errors="ignore")
+
+                    s = str(raw).strip().lower()
+                    if s in {"1", "true", "yes", "y", "t"}:
+                        return True
+                    if s in {"0", "false", "no", "n", "f"}:
+                        return False
+
+                    # If stored as json.dumps(True/False) => "true"/"false" (already handled),
+                    # but if something else valid JSON shows up, try it:
+                    return bool(json.loads(raw))
+                except Exception as e:
+                    log(f"❌ Redis hget {field} failed for {hash_key}: {e}")
+                    return default
+
+            async def redis_set_bool_json(hash_key: str, field: str, value: bool) -> None:
+                if redis_client is None:
+                    log(f"⚠️ redis_client is None — did NOT set {field} for {hash_key}")
+                    return
+                try:
+                    # Store as valid JSON boolean ("true"/"false") for consistency
+                    await redis_client.hset(hash_key, mapping={field: json.dumps(value)})
+                except Exception as e:
+                    log(f"❌ Redis hset {field} failed for {hash_key}: {e}")
+
             # Flip ai_is_speaking off if block_start_time + audio_duration passed
             block_start_time = session.get("block_start_time")
             audio_duration = session.get("audio_duration")
@@ -1661,12 +1725,17 @@ async def media_stream(ws: WebSocket):
                 and audio_duration is not None
                 and time.time() > (block_start_time + audio_duration)
             ):
-                session["ai_is_speaking"] = False
-                log(f"🏁 [{sid}] AI finished speaking. Flag flipped OFF.")
+                # ✅ Redis-only write (do NOT write ai_is_speaking to session_memory)
+                await redis_set_bool_json(sid, "ai_is_speaking", False)
+                log(f"🏁 [{sid}] AI finished speaking. (Redis ai_is_speaking=False)")
 
-            # ✅ Main save gate: Redis-only for user_response_processing, session_memory for ai_is_speaking
+            # ✅ Main save gate:
+            # - user_response_processing is Redis-only (already)
+            # - ai_is_speaking is now Redis-only (changed)
             user_processing = await redis_get_bool(sid, "user_response_processing", default=False)
-            if (session.get("ai_is_speaking") is False) and (user_processing is False):
+            ai_is_speaking = await redis_get_bool_loose(sid, "ai_is_speaking", default=False)
+
+            if (ai_is_speaking is False) and (user_processing is False):
                 session["close_requested"] = True
                 print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
 
@@ -1686,7 +1755,10 @@ async def media_stream(ws: WebSocket):
                 last_transcript["confidence"] = 0.0
                 last_transcript["is_final"] = False
             else:
-                log(f"🚫 [{sid}] Save skipped — AI still speaking or still processing previous turn")
+                log(
+                    f"🚫 [{sid}] Save skipped — "
+                    f"ai_is_speaking={ai_is_speaking}, user_processing={user_processing}"
+                )
 
                 # 🧹 Clear junk to avoid stale input (same behavior you had)
                 final_transcripts.clear()
