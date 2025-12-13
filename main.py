@@ -1977,7 +1977,7 @@ async def media_stream(ws: WebSocket):
             while not finished["done"]:
                 await asyncio.sleep(0.5)
                 elapsed = time.time() - last_input_time["ts"]
-        
+
                 if (
                     elapsed > 2.0 and
                     last_transcript["confidence"] >= 0.5 and
@@ -1985,7 +1985,7 @@ async def media_stream(ws: WebSocket):
                 ):
                     print(f"✅ User finished speaking (elapsed: {elapsed:.1f}s, confidence: {last_transcript['confidence']})")
                     finished["done"] = True
-                    
+
                     print("⏳ Waiting for POST to handle GPT + TTS...")
                     for _ in range(40):  # up to 4 seconds
                         audio_path = session_memory.get(call_sid_holder["sid"], {}).get("audio_path")
@@ -1995,10 +1995,10 @@ async def media_stream(ws: WebSocket):
                         await asyncio.sleep(0.1)
                     else:
                         print("❌ Timed out waiting for POST to generate GPT audio.")
-                        
-       loop.create_task(monitor_user_done())
 
-       async def sender():
+        loop.create_task(monitor_user_done())
+
+        async def sender():
             send_counter = 0
             last_recv_log = 0.0
 
@@ -2110,4 +2110,3 @@ async def media_stream(ws: WebSocket):
                     break
 
         await sender()
-
