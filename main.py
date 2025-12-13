@@ -1999,8 +1999,8 @@ async def media_stream(ws: WebSocket):
         loop.create_task(monitor_user_done())
         
         async def sender():
-            send_counter = 0  # already there
-            last_recv_log = 0.0  # already there
+            send_counter = 0
+            last_recv_log = 0.0
 
             while True:
                 # 🛑 If some other task already closed the WebSocket, exit cleanly
@@ -2008,12 +2008,13 @@ async def media_stream(ws: WebSocket):
                     print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
                     break
 
+                # 1) RECEIVE from Twilio WS
                 try:
                     raw = await ws.receive_text()
 
                     now = time.time()
                     if now - last_recv_log >= 0.5:  # only log every 500ms
-                        print("📡 Used ws.receive_text in Sender")
+                        print("📡 Used ws.receive_text in sender")
                         last_recv_log = now
 
                 except WebSocketDisconnect:
@@ -2023,25 +2024,23 @@ async def media_stream(ws: WebSocket):
 
                 except Exception as e:
                     msg = str(e)
-                    if "not connected" in msg or "Need to call \"accept\" first" in msg:
-                        # This just means the socket was already closed elsewhere
+                    if "not connected" in msg or 'Need to call "accept" first' in msg:
                         print(f"ℹ️ sender(): WebSocket not connected anymore ({e}), exiting loop")
                         ws_state["closed"] = True
                         break
 
-                    # Only truly unexpected stuff gets logged as an error
                     print(f"⚠️ Unexpected error receiving message: {e}")
                     ws_state["closed"] = True
                     break
 
+                # 2) PARSE JSON
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError as e:
                     print(f"⚠️ JSON decode error: {e}")
                     continue
 
-                # ... rest of your event handling (start/media/stop) unchanged ...
-
+                # 3) HANDLE EVENTS
                 event = msg.get("event")
 
                 if event == "start":
@@ -2053,10 +2052,9 @@ async def media_stream(ws: WebSocket):
                     )
 
                     call_sid_holder["sid"] = sid
-
                     session = session_memory.setdefault(sid, {})
 
-                    # ✅ close_requested is now Redis-only: reset via Redis (do NOT write session["close_requested"])
+                    # ✅ close_requested is Redis-only
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2068,8 +2066,7 @@ async def media_stream(ws: WebSocket):
                     else:
                         log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
 
-                    # Reset deepgram_is_final_watchdog
-                    # ✅ warned is Redis-only: reset via Redis (do NOT write session["warned"])
+                    # (Your warned reset - you marked this Redis-only too)
                     if redis_client is not None:
                         try:
                             start_redis = time.perf_counter()
@@ -2081,48 +2078,37 @@ async def media_stream(ws: WebSocket):
                     else:
                         log("⚠️ redis_client is None — warned flag was NOT reset")
 
-                    print(f"🚩 Flag set: warned = False for session")
-
                     session["last_is_final_time"] = None
 
                     # 🔁 Init / reset audio buffer for this call
                     session["audio_buffer"] = bytearray()
                     print(f"🧺 Initialized audio_buffer for {sid}")
 
-                    print(f"📞 Stream started for {sid}, close_requested=False")
-
-                    #Let Keep Alive Logic Run
+                    # Let Keep Alive Logic Run
                     session_memory[sid]["clean_websocket_close"] = False
                     print("🧼 clean_websocket_close = False")
+
+                    print(f"📞 Stream started for {sid}")
 
                 elif event == "media":
                     try:
                         payload = base64.b64decode(msg["media"]["payload"])
                         dg_connection.last_media_time = time.time()
 
-                        # 🔊 Look up the current sid
                         sid = call_sid_holder.get("sid")
                         if sid:
                             session = session_memory.setdefault(sid, {})
-
-                            # 🧺 Get / init buffer
                             buf = session.setdefault("audio_buffer", bytearray())
                             buf.extend(payload)
 
-                            # 🧽 Keep only the last MAX_BUFFER_BYTES
                             if len(buf) > MAX_BUFFER_BYTES:
-                                # keep tail only
                                 session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
 
-                        # 🔴 Try to send live to Deepgram (may fail during reconnect)
                         try:
                             dg_connection.send(payload)
-
-                            # throttle this log: only print ~every 50 sends
                             if send_counter % 50 == 0:
                                 print(f"📡 Used .send for payload in sender (count={send_counter})")
                             send_counter += 1
-
                         except Exception as e:
                             print(f"⚠️ Error sending to Deepgram (live): {e}")
 
@@ -2131,4 +2117,6 @@ async def media_stream(ws: WebSocket):
 
                 elif event == "stop":
                     print("⏹ Stream stopped by Twilio")
+                    ws_state["closed"] = True
                     break
+        
