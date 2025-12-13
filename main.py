@@ -1998,125 +1998,125 @@ async def media_stream(ws: WebSocket):
                         
         loop.create_task(monitor_user_done())
         
-        async def sender():
-            send_counter = 0
-            last_recv_log = 0.0
+            async def sender():
+                send_counter = 0
+                last_recv_log = 0.0
 
-            while True:
-                # 🛑 If some other task already closed the WebSocket, exit cleanly
-                if ws_state["closed"]:
-                    print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
-                    break
+                while True:
+                    # 🛑 If some other task already closed the WebSocket, exit cleanly
+                    if ws_state["closed"]:
+                        print("ℹ️ sender(): ws_state.closed=True, exiting sender loop")
+                        break
 
-                # 1) RECEIVE from Twilio WS
-                try:
-                    raw = await ws.receive_text()
+                    # 1) RECEIVE from Twilio WS
+                    try:
+                        raw = await ws.receive_text()
 
-                    now = time.time()
-                    if now - last_recv_log >= 0.5:  # only log every 500ms
-                        print("📡 Used ws.receive_text in sender")
-                        last_recv_log = now
+                        now = time.time()
+                        if now - last_recv_log >= 0.5:  # only log every 500ms
+                            print("📡 Used ws.receive_text in sender")
+                            last_recv_log = now
 
-                except WebSocketDisconnect:
-                    print("✖️ Twilio WebSocket disconnected (sender)")
-                    ws_state["closed"] = True
-                    break
-
-                except Exception as e:
-                    msg = str(e)
-                    if "not connected" in msg or 'Need to call "accept" first' in msg:
-                        print(f"ℹ️ sender(): WebSocket not connected anymore ({e}), exiting loop")
+                    except WebSocketDisconnect:
+                        print("✖️ Twilio WebSocket disconnected (sender)")
                         ws_state["closed"] = True
                         break
 
-                    print(f"⚠️ Unexpected error receiving message: {e}")
-                    ws_state["closed"] = True
-                    break
-
-                # 2) PARSE JSON
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError as e:
-                    print(f"⚠️ JSON decode error: {e}")
-                    continue
-
-                # 3) HANDLE EVENTS
-                event = msg.get("event")
-
-                if event == "start":
-                    sid = (
-                        msg["start"].get("callSid")
-                        or msg["start"].get("CallSid")
-                        or msg["start"].get("callerSid")
-                        or msg["start"].get("CallerSid")
-                    )
-
-                    call_sid_holder["sid"] = sid
-                    session = session_memory.setdefault(sid, {})
-
-                    # ✅ close_requested is Redis-only
-                    if redis_client is not None:
-                        try:
-                            start_redis = time.perf_counter()
-                            await redis_client.hset(sid, mapping={"close_requested": json.dumps(False)})
-                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
-                            log(f"🚩 Redis flag reset: close_requested=False for {sid} ({elapsed_ms:.2f} ms)")
-                        except Exception as e:
-                            log(f"❌ Redis hset close_requested reset failed for {sid}: {e}")
-                    else:
-                        log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
-
-                    # (Your warned reset - you marked this Redis-only too)
-                    if redis_client is not None:
-                        try:
-                            start_redis = time.perf_counter()
-                            await redis_client.hset(sid, mapping={"warned": json.dumps(False)})
-                            elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
-                            log(f"🚩 Redis flag reset: warned=False for {sid} ({elapsed_ms:.2f} ms)")
-                        except Exception as e:
-                            log(f"❌ Redis hset warned reset failed for {sid}: {e}")
-                    else:
-                        log("⚠️ redis_client is None — warned flag was NOT reset")
-
-                    session["last_is_final_time"] = None
-
-                    # 🔁 Init / reset audio buffer for this call
-                    session["audio_buffer"] = bytearray()
-                    print(f"🧺 Initialized audio_buffer for {sid}")
-
-                    # Let Keep Alive Logic Run
-                    session_memory[sid]["clean_websocket_close"] = False
-                    print("🧼 clean_websocket_close = False")
-
-                    print(f"📞 Stream started for {sid}")
-
-                elif event == "media":
-                    try:
-                        payload = base64.b64decode(msg["media"]["payload"])
-                        dg_connection.last_media_time = time.time()
-
-                        sid = call_sid_holder.get("sid")
-                        if sid:
-                            session = session_memory.setdefault(sid, {})
-                            buf = session.setdefault("audio_buffer", bytearray())
-                            buf.extend(payload)
-
-                            if len(buf) > MAX_BUFFER_BYTES:
-                                session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
-
-                        try:
-                            dg_connection.send(payload)
-                            if send_counter % 50 == 0:
-                                print(f"📡 Used .send for payload in sender (count={send_counter})")
-                            send_counter += 1
-                        except Exception as e:
-                            print(f"⚠️ Error sending to Deepgram (live): {e}")
-
                     except Exception as e:
-                        print(f"⚠️ Error processing Twilio media: {e}")
+                        msg = str(e)
+                        if "not connected" in msg or 'Need to call "accept" first' in msg:
+                            print(f"ℹ️ sender(): WebSocket not connected anymore ({e}), exiting loop")
+                            ws_state["closed"] = True
+                            break
 
-                elif event == "stop":
-                    print("⏹ Stream stopped by Twilio")
-                    ws_state["closed"] = True
-                    break
-        
+                        print(f"⚠️ Unexpected error receiving message: {e}")
+                        ws_state["closed"] = True
+                        break
+
+                    # 2) PARSE JSON
+                    try:
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError as e:
+                        print(f"⚠️ JSON decode error: {e}")
+                        continue
+
+                    # 3) HANDLE EVENTS
+                    event = msg.get("event")
+
+                    if event == "start":
+                        sid = (
+                            msg["start"].get("callSid")
+                            or msg["start"].get("CallSid")
+                            or msg["start"].get("callerSid")
+                            or msg["start"].get("CallerSid")
+                        )
+
+                        call_sid_holder["sid"] = sid
+                        session = session_memory.setdefault(sid, {})
+
+                        # ✅ close_requested is Redis-only
+                        if redis_client is not None:
+                            try:
+                                start_redis = time.perf_counter()
+                                await redis_client.hset(sid, mapping={"close_requested": json.dumps(False)})
+                                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                                log(f"🚩 Redis flag reset: close_requested=False for {sid} ({elapsed_ms:.2f} ms)")
+                            except Exception as e:
+                                log(f"❌ Redis hset close_requested reset failed for {sid}: {e}")
+                        else:
+                            log("⚠️ redis_client is None — close_requested was NOT reset (Redis-only flag)")
+
+                        # (Your warned reset - you marked this Redis-only too)
+                        if redis_client is not None:
+                            try:
+                                start_redis = time.perf_counter()
+                                await redis_client.hset(sid, mapping={"warned": json.dumps(False)})
+                                elapsed_ms = (time.perf_counter() - start_redis) * 1000.0
+                                log(f"🚩 Redis flag reset: warned=False for {sid} ({elapsed_ms:.2f} ms)")
+                            except Exception as e:
+                                log(f"❌ Redis hset warned reset failed for {sid}: {e}")
+                        else:
+                            log("⚠️ redis_client is None — warned flag was NOT reset")
+
+                        session["last_is_final_time"] = None
+
+                        # 🔁 Init / reset audio buffer for this call
+                        session["audio_buffer"] = bytearray()
+                        print(f"🧺 Initialized audio_buffer for {sid}")
+
+                        # Let Keep Alive Logic Run
+                        session_memory[sid]["clean_websocket_close"] = False
+                        print("🧼 clean_websocket_close = False")
+
+                        print(f"📞 Stream started for {sid}")
+
+                    elif event == "media":
+                        try:
+                            payload = base64.b64decode(msg["media"]["payload"])
+                            dg_connection.last_media_time = time.time()
+
+                            sid = call_sid_holder.get("sid")
+                            if sid:
+                                session = session_memory.setdefault(sid, {})
+                                buf = session.setdefault("audio_buffer", bytearray())
+                                buf.extend(payload)
+
+                                if len(buf) > MAX_BUFFER_BYTES:
+                                    session["audio_buffer"] = buf[-MAX_BUFFER_BYTES:]
+
+                            try:
+                                dg_connection.send(payload)
+                                if send_counter % 50 == 0:
+                                    print(f"📡 Used .send for payload in sender (count={send_counter})")
+                                send_counter += 1
+                            except Exception as e:
+                                print(f"⚠️ Error sending to Deepgram (live): {e}")
+
+                        except Exception as e:
+                            print(f"⚠️ Error processing Twilio media: {e}")
+
+                    elif event == "stop":
+                        print("⏹ Stream stopped by Twilio")
+                        ws_state["closed"] = True
+                        break
+                
