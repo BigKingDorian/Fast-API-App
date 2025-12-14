@@ -107,7 +107,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # assumes:
 # redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 # and `log` + `session_memory` already exist
-
 async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_response=None):
     """
     Save transcript-related fields for a call into Redis (and optionally local cache).
@@ -118,6 +117,7 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
     """
     fields = {}
 
+    # ✅ user_transcript is stored ONLY in Redis (no session_memory usage for this field)
     if user_transcript:
         ts = time.time()
         fields["user_transcript"] = user_transcript
@@ -137,35 +137,29 @@ async def save_transcript(call_sid, user_transcript=None, audio_path=None, gpt_r
     if not fields:
         return
 
-    # ✅ Primary: write to Redis, with timing
-    if redis_client is not None:
-        try:
-            start = time.perf_counter()
-            # hset(key, mapping=dict) stores everything in one hash
-            await redis_client.hset(call_sid, mapping=fields)
-            elapsed_ms = (time.perf_counter() - start) * 1000.0
+    # ✅ Write to Redis
+    if redis_client is None:
+        log(f"⚠️ redis_client is None — did NOT save transcript fields for {call_sid}")
+        return
 
-            log(
-                f"⏱️ Redis hset for {call_sid} "
-                f"took {elapsed_ms:.2f} ms (fields={list(fields.keys())})"
-            )
+    try:
+        await redis_client.hset(call_sid, mapping=fields)
+    except Exception as e:
+        log(f"❌ Redis hset failed in save_transcript for {call_sid}: {e}")
+        return
 
-            # Optional TTL:
-            # await redis_client.expire(call_sid, 7200)
-
-        except Exception as e:
-            log(f"❌ Redis hset failed for {call_sid}: {e}")
-
-    else:
-        log("⚠️ save_transcript called but redis_client is None; only local cache updated")
-
-    # 🟡 Optional: keep local cache during migration
-    # ✅ BUT: transcript_version is Redis-only (do NOT write it to session_memory)
-    session = session_memory.setdefault(call_sid, {})
-    for k, v in fields.items():
-        if k == "transcript_version":
-            continue
-        session[k] = v
+    # (Optional) local cache update — leave everything else alone, but DO NOT cache user_transcript
+    try:
+        session = session_memory.get(call_sid) if "session_memory" in globals() else None
+        if session is not None:
+            if audio_path:
+                session["audio_path"] = audio_path
+            if gpt_response:
+                session["gpt_response"] = gpt_response
+            # intentionally NOT writing session["user_transcript"]
+            # intentionally NOT writing session["transcript_version"]
+    except Exception as e:
+        log(f"⚠️ save_transcript local cache update skipped for {call_sid}: {e}")
 
 async def get_last_audio_for_call(call_sid: str):
     """
@@ -322,36 +316,42 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 async def get_11labs_audio(call_sid: str):
     """
     Use GPT output for this call_sid, generate ElevenLabs audio,
-    and save the relevant state. Only `user_transcript` is stored in Redis.
+    and save the relevant state in Redis.
     """
-    # 🔹 Ensure local session exists
-    session = session_memory.setdefault(call_sid, {})
-
-    # 🔹 Reset GPT-related flags in session memory only
-    session["gpt_response_ready"] = False
-    session["get_gpt_response_started"] = False
-
-    # 🔹 Clear user_transcript in Redis only
+    # 🔹 Reset GPT-related flags ONLY in Redis
     if redis_client is not None:
         try:
-            await redis_client.hset(call_sid, mapping={"user_transcript": ""})
+            await redis_client.hset(
+                call_sid,
+                mapping={
+                    "gpt_response_ready": "0",          # store as string/flag
+                    "get_gpt_response_started": "0",
+                    "user_transcript": "",              # ✅ user_transcript reset ONLY in Redis
+                },
+            )
         except Exception as e:
-            log(f"⚠️ Redis hset (user_transcript reset) failed for {call_sid}: {e}")
+            log(f"⚠️ Redis hset in get_11labs_audio failed for {call_sid}: {e}")
     else:
-        log(f"⚠️ Redis client not available to reset user_transcript for {call_sid}")
+        log(f"⚠️ redis_client is None in get_11labs_audio for {call_sid}")
 
-    # 🔹 Retrieve GPT output
-    # 1) Prefer in-memory cache (default behavior)
-    gpt_text = session.get("gpt_text")
-
-    # 2) Fallback to Redis for legacy support (if needed)
-    if not gpt_text and redis_client is not None:
+    # 🔹 Retrieve GPT output (Redis only)
+    gpt_text = None
+    if redis_client is not None:
         try:
-            # Try both possible keys: "gpt_text" and "gpt_response"
+            # Try both possible keys: "gpt_text" (future) and "gpt_response" (from save_transcript)
             redis_vals = await redis_client.hmget(call_sid, "gpt_text", "gpt_response")
-            gpt_text = redis_vals[0] or redis_vals[1]
+
+            v0, v1 = (redis_vals[0] if len(redis_vals) > 0 else None), (redis_vals[1] if len(redis_vals) > 1 else None)
+
+            # decode bytes if needed
+            if isinstance(v0, (bytes, bytearray)):
+                v0 = v0.decode("utf-8", errors="ignore")
+            if isinstance(v1, (bytes, bytearray)):
+                v1 = v1.decode("utf-8", errors="ignore")
+
+            gpt_text = v0 or v1
         except Exception as e:
-            log(f"⚠️ Redis fallback read failed for {call_sid}: {e}")
+            log(f"⚠️ Redis hmget in get_11labs_audio failed for {call_sid}: {e}")
 
     if not gpt_text:
         gpt_text = "[Missing GPT Output]"
@@ -359,7 +359,8 @@ async def get_11labs_audio(call_sid: str):
     print(f"🧠 GPT returned text: {gpt_text}")
 
     loop = asyncio.get_running_loop()
-    
+
+    # --- paste the rest of your original get_11labs_audio code here unchanged ---
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS (off the event loop) ───────────────
     def _call_elevenlabs():
         return requests.post(
@@ -430,45 +431,79 @@ async def get_11labs_audio(call_sid: str):
         print("📜 Response:", elevenlabs_response.text)
 
 # ✅ GPT handler function
-async def get_11labs_audio(call_sid: str):
-    """
-    Use GPT output for this call_sid, generate ElevenLabs audio,
-    and save the relevant state. Only `user_transcript` is stored in Redis.
-    """
-    # 🔹 Ensure local session exists
-    session = session_memory.setdefault(call_sid, {})
+async def get_gpt_response(call_sid: str) -> None:
+    try:
+        # 1) Read user_transcript – ✅ Redis ONLY (no session_memory fallback)
+        gpt_input = None
 
-    # 🔹 Reset GPT-related flags in session memory only
-    session["gpt_response_ready"] = False
-    session["get_gpt_response_started"] = False
+        if redis_client is not None:
+            try:
+                gpt_input = await redis_client.hget(call_sid, "user_transcript")
+            except Exception as e:
+                log(f"⚠️ Redis hget failed in get_gpt_response for {call_sid}: {e}")
 
-    # 🔹 Clear user_transcript in Redis only
-    if redis_client is not None:
-        try:
-            await redis_client.hset(call_sid, mapping={"user_transcript": ""})
-        except Exception as e:
-            log(f"⚠️ Redis hset (user_transcript reset) failed for {call_sid}: {e}")
-    else:
-        log(f"⚠️ Redis client not available to reset user_transcript for {call_sid}")
+        # Decode bytes if Redis returns bytes
+        if isinstance(gpt_input, (bytes, bytearray)):
+            gpt_input = gpt_input.decode("utf-8", errors="ignore")
 
-    # 🔹 Retrieve GPT output (session_memory preferred)
-    gpt_text = session.get("gpt_text")
+        safe_text = gpt_input.strip() if gpt_input else "Hello, how can I help you today?"
 
-    # 🔹 Optional: fallback to Redis for GPT output (legacy support)
-    if not gpt_text and redis_client is not None:
-        try:
-            vals = await redis_client.hmget(call_sid, "gpt_text", "gpt_response")
-            gpt_text = vals[0] or vals[1]
-        except Exception as e:
-            log(f"⚠️ Redis fallback read failed for {call_sid}: {e}")
+        # 2) Call OpenAI
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful AI assistant named Lotus. "
+                        "Keep your responses clear and concise."
+                    ),
+                },
+                {"role": "user", "content": safe_text},
+            ],
+        )
 
-    if not gpt_text:
-        gpt_text = "[Missing GPT Output]"
+        gpt_text = response.choices[0].message.content or "[GPT returned empty message]"
 
-    print(f"🧠 GPT returned text: {gpt_text}")
+        # 3) Save to Redis
+        fields = {
+            "gpt_text": gpt_text,
+            "gpt_response_ready": "1",   # strings in Redis
+        }
 
-    loop = asyncio.get_running_loop()
-    
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping=fields)
+            except Exception as e:
+                log(f"❌ Redis hset failed in get_gpt_response for {call_sid}: {e}")
+
+        # 4) Also keep local cache in session_memory (during migration)
+        session = session_memory.setdefault(call_sid, {})
+        session["gpt_text"] = gpt_text
+        session["gpt_response_ready"] = True
+
+        print(f"🚩 Flag set: gpt_response_ready = True for session {call_sid}")
+
+    except Exception as e:
+        print(f"⚠️ GPT Error: {e}")
+
+        fallback_text = "[GPT failed to respond]"
+        fields = {
+            "gpt_text": fallback_text,
+            "gpt_response_ready": "1",
+        }
+
+        # Try to persist even on error so the POST route doesn't hang forever
+        if redis_client is not None:
+            try:
+                await redis_client.hset(call_sid, mapping=fields)
+            except Exception as e2:
+                log(f"❌ Redis hset failed in error path for {call_sid}: {e2}")
+
+        session = session_memory.setdefault(call_sid, {})
+        session["gpt_text"] = fallback_text
+        session["gpt_response_ready"] = True
+
 # ✅ Helper to run GPT in executor from a thread
 async def print_gpt_response(sentence: str):
     response = await get_gpt_response(sentence)
@@ -540,6 +575,9 @@ async def twilio_voice_webhook(request: Request):
     # 🧠 Load session snapshot from Redis (preferred) + keep local cache for migration
     session: dict = session_memory.get(call_sid, {}).copy()
 
+    # ✅ user_transcript is Redis-only: never keep/copy it in local session snapshot
+    session.pop("user_transcript", None)
+
     # ✅ transcript_version is Redis-only: never keep/copy it in local session snapshot
     session.pop("transcript_version", None)
 
@@ -549,6 +587,9 @@ async def twilio_voice_webhook(request: Request):
             print(f"🧠 Redis session for {call_sid}: {redis_session}")
             # Merge Redis values into local snapshot (strings are fine for flags)
             session.update(redis_session)
+
+            # ✅ user_transcript is Redis-only: do not keep/copy it into session_memory
+            session.pop("user_transcript", None)
 
             # ✅ transcript_version is Redis-only: do not keep/copy it into session_memory
             session.pop("transcript_version", None)
@@ -566,6 +607,9 @@ async def twilio_voice_webhook(request: Request):
     if not greeting_played:
         # Mark as played (local + Redis)
         session["greeting_played"] = True
+
+        # ✅ user_transcript is Redis-only: ensure it is NOT written into session_memory
+        session.pop("user_transcript", None)
 
         # ✅ transcript_version is Redis-only: ensure it is NOT written into session_memory
         session.pop("transcript_version", None)
@@ -596,23 +640,27 @@ async def twilio_voice_webhook(request: Request):
                 "last_responded_version",
             )
 
+            # ✅ user_transcript is Redis-only: decode if needed
+            if isinstance(user_transcript, (bytes, bytearray)):
+                user_transcript = user_transcript.decode("utf-8", errors="ignore")
+
             # Convert numeric-ish fields
             transcript_version = float(tv_raw) if tv_raw is not None else 0.0
             last_responded_version = float(lr_raw) if lr_raw is not None else 0.0
         except Exception as e:
             log(f"⚠️ Redis HMGET failed for {call_sid}: {e}")
-            # Fallback to local cache (✅ but transcript_version stays Redis-only)
+            # Fallback to local cache (✅ but user_transcript stays Redis-only; transcript_version stays Redis-only)
             data = session_memory.get(call_sid, {})
-            user_transcript = data.get("user_transcript")
+            user_transcript = None  # ✅ DO NOT read user_transcript from session_memory
             transcript_version = 0.0  # ✅ DO NOT read transcript_version from session_memory
             last_responded_version = data.get("last_responded_version", 0.0) or 0.0
     else:
-        # Pure in-memory fallback — DO NOT load user_transcript
+        # Pure in-memory fallback (✅ but user_transcript stays Redis-only; transcript_version stays Redis-only)
         data = session_memory.get(call_sid, {})
-        user_transcript = None  # Redis-only
-        transcript_version = 0.0
+        user_transcript = None  # ✅ DO NOT read user_transcript from session_memory
+        transcript_version = 0.0  # ✅ DO NOT read transcript_version from session_memory
         last_responded_version = data.get("last_responded_version", 0.0) or 0.0
-    
+
     # (This old var isn't used in logic anymore; you can delete if you want)
     last_known_version = transcript_version
 
@@ -673,7 +721,7 @@ async def post2(request: Request):
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
 
-    # --- 1️⃣ Load user_transcript from Redis only ---
+    # --- 1️⃣ Load user_transcript from Redis ONLY ---
     gpt_input = None
 
     if redis_client is not None:
@@ -682,6 +730,10 @@ async def post2(request: Request):
         except Exception as e:
             log(f"⚠️ Redis hget(user_transcript) failed for {call_sid}: {e}")
 
+    # Decode bytes if Redis returns bytes
+    if isinstance(gpt_input, (bytes, bytearray)):
+        gpt_input = gpt_input.decode("utf-8", errors="ignore")
+
     # ✅ If no transcript or unclear, just go back to WAIT2 loops
     if not gpt_input or len(gpt_input.strip()) < 4:
         vr = VoiceResponse()
@@ -689,7 +741,7 @@ async def post2(request: Request):
         print("⚠️ No valid transcript — redirecting to /wait2")
         return Response(str(vr), media_type="application/xml")
 
-    # --- 2️⃣ Check / set get_gpt_response_started flag (local + Redis fallback) ---
+    # --- 2️⃣ Check / set get_gpt_response_started flag (Redis + local) ---
     def _to_bool(val):
         if val is None:
             return False
@@ -758,7 +810,7 @@ async def post2(request: Request):
         vr.redirect("/wait2")
 
     return Response(str(vr), media_type="application/xml")
-    
+
 @app.post("/3")
 async def post3(request: Request):
     form_data = await request.form()
@@ -1766,31 +1818,33 @@ async def media_stream(ws: WebSocket):
             ai_is_speaking = await redis_get_bool_loose(sid, "ai_is_speaking", default=False)
 
             if (ai_is_speaking is False) and (user_processing is False):
-                # ✅ Redis-only write for close_requested=True
+                # ✅ Redis-only write for close_requested=True (do NOT write to session_memory)
                 await redis_set_bool_json(sid, "close_requested", True)
+
                 print(f"🛑 Requested Deepgram close for {sid} (accepted transcript)")
 
-                # ✅ Redis-only write for user_transcript
+                # ✅ user_transcript is Redis-only (do NOT write to session_memory)
                 if redis_client is not None:
                     try:
                         await redis_client.hset(sid, mapping={"user_transcript": full_transcript})
-                        log(f"💾 [Redis] user_transcript saved for {sid}")
                     except Exception as e:
-                        log(f"❌ Redis hset user_transcript failed for {sid}: {e}")
+                        log(f"⚠️ Failed to write user_transcript to Redis for {sid}: {e}")
                 else:
-                    log(f"⚠️ Redis client not available — could NOT save user_transcript for {sid}")
+                    log(f"⚠️ redis_client is None — did NOT save user_transcript for {sid}")
 
-                # ✅ Keep this in session_memory
+                # ensure local session never keeps/copies user_transcript
+                session.pop("user_transcript", None)
+
                 session["ready"] = True
 
-                # ✅ Redis-only write for user_response_processing=True
+                # ✅ Redis-only write for user_response_processing=True (do NOT write to session_memory)
                 await redis_set_bool(sid, "user_response_processing", True)
-                log(f"✍️ [{sid}] user_transcript accepted at {time.time()}")
 
+                log(f"✍️ [{sid}] user_transcript saved at {time.time()}")
                 loop.create_task(save_transcript(sid, user_transcript=full_transcript))
                 logger.info(f"🟩 [User Input] Processing started — blocking writes for {sid}")
 
-                # ✅ Clear final_transcripts and last_transcript
+                # ✅ Clear after successful save (same behavior you had)
                 final_transcripts.clear()
                 last_transcript["text"] = ""
                 last_transcript["confidence"] = 0.0
@@ -1800,11 +1854,16 @@ async def media_stream(ws: WebSocket):
                     f"🚫 [{sid}] Save skipped — "
                     f"ai_is_speaking={ai_is_speaking}, user_processing={user_processing}"
                 )
+
+                # 🧹 Clear junk to avoid stale input (same behavior you had)
                 final_transcripts.clear()
                 last_transcript["text"] = ""
                 last_transcript["confidence"] = 0.0
                 last_transcript["is_final"] = False
-                
+
+        # --------------------------------------
+        # Deepgram transcript callback (SYNC)
+        # --------------------------------------
         def on_transcript(*args, **kwargs):
             try:
                 print("📥 RAW transcript event:")
@@ -2188,4 +2247,3 @@ async def media_stream(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
-            
