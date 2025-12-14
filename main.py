@@ -316,34 +316,41 @@ async def convert_audio_ulaw(call_sid: str, file_path: str, unique_id: str):
 async def get_11labs_audio(call_sid: str):
     """
     Use GPT output for this call_sid, generate ElevenLabs audio,
-    and save the relevant state in Redis.
+    and save the relevant state in BOTH session_memory and Redis.
     """
-    # 🔹 Reset GPT-related flags ONLY in Redis
+    # 🔹 Ensure local session exists (needed because the rest of this function uses `session[...]`)
+    session = session_memory.setdefault(call_sid, {})
+
+    # 🔹 Reset GPT-related flags (local cache)
+    session["gpt_response_ready"] = False
+    session["get_gpt_response_started"] = False
+
+    # ✅ user_transcript should be Redis-only: remove from local cache if present
+    session.pop("user_transcript", None)
+
+    # 🔹 Mirror those resets into Redis
     if redis_client is not None:
         try:
             await redis_client.hset(
                 call_sid,
                 mapping={
-                    "gpt_response_ready": "0",          # store as string/flag
+                    "gpt_response_ready": "0",
                     "get_gpt_response_started": "0",
-                    "user_transcript": "",              # ✅ user_transcript reset ONLY in Redis
+                    "user_transcript": "",   # ✅ Redis-only reset
                 },
             )
         except Exception as e:
             log(f"⚠️ Redis hset in get_11labs_audio failed for {call_sid}: {e}")
-    else:
-        log(f"⚠️ redis_client is None in get_11labs_audio for {call_sid}")
 
-    # 🔹 Retrieve GPT output (Redis only)
-    gpt_text = None
-    if redis_client is not None:
+    # 🔹 Retrieve GPT output
+    gpt_text = session.get("gpt_text")
+
+    if not gpt_text and redis_client is not None:
         try:
-            # Try both possible keys: "gpt_text" (future) and "gpt_response" (from save_transcript)
             redis_vals = await redis_client.hmget(call_sid, "gpt_text", "gpt_response")
+            v0 = redis_vals[0] if len(redis_vals) > 0 else None
+            v1 = redis_vals[1] if len(redis_vals) > 1 else None
 
-            v0, v1 = (redis_vals[0] if len(redis_vals) > 0 else None), (redis_vals[1] if len(redis_vals) > 1 else None)
-
-            # decode bytes if needed
             if isinstance(v0, (bytes, bytearray)):
                 v0 = v0.decode("utf-8", errors="ignore")
             if isinstance(v1, (bytes, bytearray)):
@@ -360,7 +367,8 @@ async def get_11labs_audio(call_sid: str):
 
     loop = asyncio.get_running_loop()
 
-    # --- paste the rest of your original get_11labs_audio code here unchanged ---
+    # ... keep the rest of your original get_11labs_audio unchanged ...
+
     # ── 3. TEXT-TO-SPEECH WITH ELEVENLABS (off the event loop) ───────────────
     def _call_elevenlabs():
         return requests.post(
